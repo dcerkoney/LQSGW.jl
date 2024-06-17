@@ -1,0 +1,13 @@
+name = "LQSGW"
+uuid = "5c8b8944-238e-40ab-a281-5bdd5d7f9a22"
+authors = ["Daniel Cerkoney <dcerkoney@physics.rutgers.edu>"]
+version = "1.0.0-DEV"
+
+[compat]
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
