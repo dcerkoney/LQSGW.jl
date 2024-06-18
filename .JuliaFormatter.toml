@@ -1,0 +1,21 @@
+# Use settings similar to default and YAS styles, which are less conservative than the julia-vscode
+# extension defaults (see: https://domluna.github.io/JuliaFormatter.jl/stable/style/#Style,
+#                          https://domluna.github.io/JuliaFormatter.jl/stable/yas_style/)
+always_for_in = true
+whitespace_ops_in_indices = true
+remove_extra_newlines = true
+import_to_using = true
+pipe_to_function_call = true
+short_to_long_function_def = true
+always_use_return = true
+whitespace_in_kwargs = false
+separate_kwargs_with_semicolon = true
+
+# Align neighboring assignments and pair arrows at `=` and `=>`, respectively
+align_assignment = true
+align_pair_arrow = true
+
+# join_lines_based_on_source = true  # YAS-style function nesting
+
+# # Use YAS style formatting preset
+# style = "yas"
