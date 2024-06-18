@@ -134,7 +134,7 @@ function Π_qp(param::Parameter.Para, E_qp, Nk, maxK, minK, order, qgrid, bdlr)
     # θ_integrand = zeros(ComplexF64, length(θgrid.grid))
     for (i, (ni, qi)) in enumerate(zip(local_ni, local_qi))
         # println("rank = $rank: Integrating (q, ω) point $i/$local_length")
-        println("rank = $rank: Integrating (q, ω) point $i/$local_length")
+        # println("rank = $rank: Integrating (q, ω) point $i/$local_length")
         # Get external frequency and momentum at this index
         n = bdlr.n[ni]
         q = qgrid.grid[qi]
@@ -254,7 +254,7 @@ function Π0_serial(
     kernel = Array{ComplexF64}(undef, length(qgrid.grid), (kgridmax), length(bdlr.n))
     θ_integrand = zeros(ComplexF64, length(θgrid.grid))
     for (ni, n) in enumerate(bdlr.n)
-        println("Integrating frequency $ni of $(length(bdlr.n))")
+        # println("Integrating frequency $ni of $(length(bdlr.n))")
         for (qi, q) in enumerate(qgrid.grid)
             # println("qi=$qi of $(length(qgrid.grid))")
             for (ki, k) in enumerate(kgrids[qi].grid)
