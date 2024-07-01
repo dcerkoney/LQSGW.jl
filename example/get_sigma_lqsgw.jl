@@ -18,9 +18,9 @@ function main()
     rtol = 1e-14
 
     # CompositeGrid parameters
-    Nk, order = 14, 10
+    # Nk, order = 14, 10
     # Nk, order = 12, 8
-    # Nk, order = 10, 6
+    Nk, order = 10, 7
 
     # ElectronGas.jl defaults for G0W0 self-energy
     maxK = 6 * kF
@@ -28,7 +28,7 @@ function main()
 
     # Test LQSGW parameters
     max_steps = 50
-    atol = 1e-7
+    atol = 1e-5
     alpha = 0.5
     δK = 5e-6
     Fs = 0.0

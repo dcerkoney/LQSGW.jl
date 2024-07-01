@@ -158,7 +158,7 @@ function Σ_LQSGW(
     save=false,
     mpi=false,
     savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
+    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta)",
 )
     return Σ_LQSGW(
         param,
@@ -237,13 +237,16 @@ function Σ_LQSGW(
     minKS = minK
 
     # Big grid for G
+    multiplier = 1
+    # multiplier = 2
+    # multiplier = 4
     kGgrid = CompositeGrid.LogDensedGrid(
         :cheb,
         [0.0, maxKG],
         [0.0, kF],
-        4 * Nk,
+        round(Int, multiplier * Nk),
         0.01 * minK,
-        4 * order,
+        round(Int, multiplier * order),
     )
 
     # Medium grid for Π
@@ -286,10 +289,10 @@ function Σ_LQSGW(
             kSgrid;
             Euv=Euv,
             rtol=rtol,
-            Nk=Nk,
+            # Nk=Nk,
             maxK=maxKS,
             minK=minKS,
-            order=order,
+            # order=order,
             int_type=_int_type,
             Fs=Fs,
             Fa=Fa,
@@ -304,21 +307,19 @@ function Σ_LQSGW(
     meff_prev = 1.0
     zfactor_prev = 1.0
 
-    # Use bare Green's function G0 as starting point
-    # G_prev = G0
-
     # Use exactly computed Π0 as starting point
     bdlr = DLRGrid(Euv, β, rtol, false, :ph)
     Π0 = GreenFunc.MeshArray(ImFreq(bdlr), qPgrid; dtype=ComplexF64)
     for (qi, q) in enumerate(qPgrid)
-        Π0[:, qi] = Polarization.Polarization0_FiniteTemp(
-            q,
-            bdlr.n,
-            param;
-            maxk=maxKP,
-            scaleN=40,
-            gaussN=20,
-        )
+        Π0[:, qi] = Polarization.Polarization0_FiniteTemp(q, bdlr.n, param; maxk=maxKP)
+        # Π0[:, qi] = Polarization.Polarization0_FiniteTemp(
+        #     q,
+        #     bdlr.n,
+        #     param;
+        #     maxk=maxKP,
+        #     scaleN=40,
+        #     gaussN=20,
+        # )
     end
 
     # Use exact Π0 for initial G0W0 self-energy: Σ[G0, Π0](k, τ)
@@ -330,7 +331,7 @@ function Σ_LQSGW(
 
     # Write initial (G0W0) self-energy to JLD2 file, overwriting if it already exists
     if save && rank == root
-        jldopen(joinpath(savedir, savename * "_i=0"), "w") do file
+        jldopen(joinpath(savedir, savename * "_i=0.jld2"), "w") do file
             file["param"] = string(param)
             file["E_qp"] = E_qp_0
             file["Z"] = zfactor_prev * ones(length(E_qp_0))
@@ -343,7 +344,6 @@ function Σ_LQSGW(
     end
 
     # Self-consistency loop
-    # pi_getter = mpi ? Π_qp : Π_qp_serial
     if rank == root
         println("\nBegin self-consistency loop...\n")
     end
@@ -385,10 +385,10 @@ function Σ_LQSGW(
         # Get the current Z-factor
         Z_kgrid = zfactor_full(param, Σ_prev)
 
-        # # Get the current quasiparticle energy up to k=maxKS
-        # E_qp_kgrid = quasiparticle_energy(param, Σ_prev, Σ_ins_prev)
+        # Get the current quasiparticle energy
+        E_qp_kSgrid = quasiparticle_energy(param, Σ_prev, Σ_ins_prev)
 
-        # Get gridded quasiparticle energy for Π_qp solver
+        # Get grid-interpolated quasiparticle energy for Π_qp solver
         E_qp_kGgrid = E_qp_grid(param, Σ_prev, Σ_ins_prev, kGgrid)
 
         # Get interpolated quasiparticle Green's function G_qp
@@ -407,9 +407,9 @@ function Σ_LQSGW(
 
         # Append self-energy at this step to JLD2 file
         if save && rank == root
-            jldopen(joinpath(savedir, savename * "_$(i_step + 1)"), "a+") do file
-                # file["E_qp"] = E_qp_kgrid
-                file["E_qp"] = E_qp_kGgrid
+            jldopen(joinpath(savedir, savename * "_i=$(i_step + 1).jld2"), "a+") do file
+                # file["E_qp"] = E_qp_kGgrid
+                file["E_qp"] = E_qp_kSgrid
                 file["Z"] = Z_kgrid
                 file["G"] = G
                 file["Π"] = Π
@@ -421,13 +421,13 @@ function Σ_LQSGW(
 
         # Prepare for next iteration
         i_step += 1
-        # # G_prev = G
-        # G_prev = G_mix
         Σ_prev = Σ_mix
         Σ_ins_prev = Σ_ins
         δμ_prev = δμ
         meff_prev = meff
         zfactor_prev = zfactor
+        # # G_prev = G
+        # G_prev = G_mix
     end
     if i_step == max_steps && rank == root
         println(
