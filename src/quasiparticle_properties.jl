@@ -1,5 +1,5 @@
 
-function bare_energy(param::Parameter.Para, kgrid)
+@inline function bare_energy(param::Parameter.Para, kgrid)
     @unpack me, μ = param
     return @. kgrid^2 / (2 * me) - μ
 end
@@ -25,57 +25,83 @@ function quasiparticle_energy(
         w0_label = locate(Σ.mesh[1], 0)
     end
     kf_label = locate(kgrid, kF)
-    Σ_static = Σ[w0_label, :] + Σ_ins[1, :]                     # Σ(k, iω=0)
-    δμ = real(Σ[w0_label, kf_label] + Σ_ins[1, kf_label])  # δμ = ReΣ(kF, iω=0)
+    Σ_static = Σ[w0_label, :] + Σ_ins[1, :]  # Σ(k, iω=0)
 
     xi_k = @. kgrid^2 / (2 * me) - μ
     @assert length(xi_k) == length(Σ_static)
 
     # NOTE: We need to use the momentum-dependent Z-factor to obtain the correct behavior at large momenta
     Zk = zfactor_full(param, Σ)
-
-    E_qp_kgrid = @. Zk * (xi_k + real(Σ_static) - δμ)
-    # return k -> Interp.interp1D(E_qp_kgrid, kgrid, k)
+    E_qp_kgrid = @. Zk * (xi_k + real(Σ_static) - real(Σ_static[kf_label]))  # δμ = ReΣ(kF, iω=0)
     return E_qp_kgrid
 end
 
-function E_0_interp(param::Parameter.Para)
+@inline function E_0_grid(param::Parameter.Para, kGgrid)
+    @unpack me, μ = param
+    return kGgrid .^ 2 / (2 * me) .- μ
+end
+
+@inline function E_0_interp(param::Parameter.Para)
     @unpack me, μ = param
     return k -> k^2 / (2 * me) - μ
+end
+
+function E_qp_grid(
+    param::Parameter.Para,
+    Σ::GreenFunc.MeshArray,
+    Σ_ins::GreenFunc.MeshArray,
+    kGgrid,
+)
+    @unpack me, μ = param
+    # Extract quasiparticle energy and Z-factor from the self-energy
+    E_qp_kSgrid = quasiparticle_energy(param, Σ, Σ_ins)
+    δμ = chemicalpotential(param, Σ, Σ_ins)
+    # Interpolate the quasiparticle energy and Z-factor along the Green's
+    # function momentum mesh, masking values where k is larger than the
+    # largest k in the self-energy mesh
+    E_qp_k = Vector{Float64}(undef, length(kGgrid))
+    # E_qp_k = Vector{eltype(E_qp_kSgrid)}(undef, length(kGgrid))
+    for (i, k) in enumerate(kGgrid)
+        if k > maximum(Σ.mesh[2])
+            # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
+            E_qp_k[i] = k^2 / (2 * param.me) - (param.μ + δμ)
+        else
+            E_qp_k[i] = Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k)
+        end
+    end
+    return E_qp_k
 end
 
 function E_qp_interp(
     param::Parameter.Para,
     Σ::GreenFunc.MeshArray,
     Σ_ins::GreenFunc.MeshArray,
-    kGgrid;
-    maxKS=nothing,
+    kGgrid,
 )
     @unpack me, μ = param
     # Extract quasiparticle energy and Z-factor from the self-energy
     E_qp_kSgrid = quasiparticle_energy(param, Σ, Σ_ins)
     δμ = chemicalpotential(param, Σ, Σ_ins)
-
     # Interpolate the quasiparticle energy and Z-factor along the Green's
-    # function momentum mesh, masking values where k > maxKS if applicable
-    E_qp_k = []
-    for k in kGgrid
-        if isnothing(maxKS) == false && k > maxKS
-            # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at maxKS)
-            Etilde_0 = k^2 / (2 * param.me) - (param.μ + δμ)
-            push!(E_qp_k, Etilde_0)
+    # function momentum mesh, masking values where k is larger than the
+    # largest k in the self-energy mesh
+    E_qp_k = Vector{Float64}(undef, length(kGgrid))
+    # E_qp_k = Vector{eltype(E_qp_kSgrid)}(undef, length(kGgrid))
+    for (i, k) in enumerate(kGgrid)
+        if k > maximum(Σ.mesh[2])
+            # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
+            E_qp_k[i] = k^2 / (2 * param.me) - (param.μ + δμ)
         else
-            push!(E_qp_k, Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k))
+            E_qp_k[i] = Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k)
         end
     end
-    # return E_qp_k
     return k -> Interp.interp1D(E_qp_k, kGgrid, k)
 end
 
 """
     function chemicalpotential(param, Σ::GreenFunc.MeshArray, Σ_ins::GreenFunc.MeshArray)
 
-Calculate the chemical potential from the self-energy at the Fermi momentum,
+Calculate the chemical potential shift from the self-energy at the Fermi momentum,
 ```math
     δμ = ReΣ(kF, iω=0)
 ```

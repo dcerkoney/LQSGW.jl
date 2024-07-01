@@ -43,23 +43,66 @@ export GW, Σ_LQSGW
 # export ...
 
 """
-    _lerp(M_start, M_end, alpha)
+    lerp(M_start, M_end, alpha)
 
 Helper function for linear interpolation with mixing parameter α.
 """
-function _lerp(M_start, M_end, alpha)
+function lerp(M_start, M_end, alpha)
     return (1 - alpha) * M_start + alpha * M_end
 end
 
 """
-    _split_count(N::Integer, n::Integer)
+    split_count(N::Integer, n::Integer)
 
 Return a vector of `n` integers which are approximately equally sized and sum to `N`.
 Used to chunk polarization for MPI parallelization.
 """
-function _split_count(N::Integer, n::Integer)
+function split_count(N::Integer, n::Integer)
     q, r = divrem(N, n)
     return [i <= r ? q + 1 : q for i in 1:n]
 end
 
+function println_root(io::IO, msg)
+    MPI.Initialized() == false && MPI.Init()
+    if MPI.Comm_rank(MPI.COMM_WORLD) == 0
+        println(io, msg)
+    end
 end
+
+function println_root(msg)
+    MPI.Initialized() == false && MPI.Init()
+    if MPI.Comm_rank(MPI.COMM_WORLD) == 0
+        println(msg)
+    end
+end
+
+function print_root(io::IO, msg)
+    MPI.Initialized() == false && MPI.Init()
+    if MPI.Comm_rank(MPI.COMM_WORLD) == 0
+        print(io, msg)
+    end
+end
+
+function print_root(msg)
+    MPI.Initialized() == false && MPI.Init()
+    if MPI.Comm_rank(MPI.COMM_WORLD) == 0
+        print(msg)
+    end
+end
+
+const TimedResultType{T} = @NamedTuple{
+    value::T,
+    time::Float64,
+    bytes::Int64,
+    gctime::Float64,
+    gcstats::Base.GC_Diff,
+} where {T}
+
+function timed_result_to_string(timed_res::TimedResultType)
+    time = round(timed_res.time; sigdigits=3)
+    num_bytes = Base.format_bytes(timed_res.bytes)
+    num_allocs = timed_res.gcstats.malloc + timed_res.gcstats.poolalloc
+    return "  $time seconds ($num_allocs allocations: $num_bytes)"
+end
+
+end  # module LQSGW

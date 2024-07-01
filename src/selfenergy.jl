@@ -305,7 +305,7 @@ function Σ_LQSGW(
     zfactor_prev = 1.0
 
     # Use bare Green's function G0 as starting point
-    G_prev = G0
+    # G_prev = G0
 
     # Use exactly computed Π0 as starting point
     bdlr = DLRGrid(Euv, β, rtol, false, :ph)
@@ -324,30 +324,35 @@ function Σ_LQSGW(
     # Use exact Π0 for initial G0W0 self-energy: Σ[G0, Π0](k, τ)
     Σ, Σ_ins = Σ_GW(G0, Π0)
 
+    # Use G0W0 self-energy as starting point
+    Σ_prev = Σ_mix = Σ
+    Σ_ins_prev = Σ_ins_mix = Σ_ins
+
     # Write initial (G0W0) self-energy to JLD2 file, overwriting if it already exists
     if save && rank == root
-        jldopen(joinpath(savedir, savename), "w") do file
+        jldopen(joinpath(savedir, savename * "_i=0"), "w") do file
             file["param"] = string(param)
-            file["E_qp_0"] = E_qp_0
-            file["Z_0"] = zfactor_prev * ones(length(E_qp_0))
-            file["G_0"] = G0
-            file["Π_0"] = Π0
-            file["Σ_0"] = Σ
-            return file["Σ_ins_0"] = Σ_ins
+            file["E_qp"] = E_qp_0
+            file["Z"] = zfactor_prev * ones(length(E_qp_0))
+            file["G"] = G0
+            file["Π"] = Π0
+            file["Σ"] = Σ
+            file["Σ_ins"] = Σ_ins
+            return
         end
     end
 
     # Self-consistency loop
-    pi_getter = mpi ? Π_qp : Π_qp_serial
+    # pi_getter = mpi ? Π_qp : Π_qp_serial
     if rank == root
         println("\nBegin self-consistency loop...\n")
     end
     i_step = 0
     while i_step < max_steps
-        δμ = chemicalpotential(param, Σ, Σ_ins)
-        meff = massratio(param, Σ, Σ_ins, δK)[1]
-        zfactor = zfactor_fermi(param, Σ)
-
+        # Get quasiparticle properties
+        δμ = chemicalpotential(param, Σ_prev, Σ_ins_prev)
+        meff = massratio(param, Σ_prev, Σ_ins_prev, δK)[1]
+        zfactor = zfactor_fermi(param, Σ_prev)
         if verbose && rank == root
             print("""\n
             Step $(i_step + 1):
@@ -355,44 +360,6 @@ function Σ_LQSGW(
             • Z           = \t$(zfactor)
             • δμ          = \t$(δμ)
             """)
-        end
-
-        # Get the current Z-factor
-        Z_kgrid = zfactor_full(param, Σ)
-
-        # Get the current quasiparticle energy up to k=maxKS
-        E_qp_kgrid = quasiparticle_energy(param, Σ, Σ_ins)
-
-        # Get interpolated quasiparticle energy for Π_qp solver
-        E_qp = E_qp_interp(param, Σ, Σ_ins, kGgrid; maxKS=maxKS)
-
-        # Get interpolated quasiparticle Green's function G_qp
-        G = G_qp(param, Σ, Σ_ins, kGgrid; maxKS=maxKS)
-
-        # Mix the new and old Green's functions via linear interpolation:
-        # G_mix = (1 - α) * G_prev + α * G
-        G_mix = _lerp(G_prev, G, alpha)
-
-        # Get Π_mix = Π_qp[G_mix]
-        Π_mix = pi_getter(param, E_qp, Nk, maxKP, minK, order, qPgrid, bdlr)
-
-        # # Get Π_mix = Π0 + δΠ_qp[G0, G_mix]
-        # δΠ_mix = get_δΠ_qp_qw(param, G0, G_mix, Euv, rtol, Nk, maxK, minK, order, qPgrid)
-        # Π_mix = Π0 + δΠ_mix
-
-        # Get Σ[G_mix, Π_mix](K, τ)
-        Σ, Σ_ins = Σ_GW(G_mix, Π_mix)
-
-        # Append self-energy at this step to JLD2 file
-        if save && rank == root
-            jldopen(joinpath(savedir, savename), "a+") do file
-                file["E_qp_$(i_step + 1)"] = E_qp_kgrid
-                file["Z_$(i_step + 1)"] = Z_kgrid
-                file["G_$(i_step + 1)"] = G_mix
-                file["Π_$(i_step + 1)"] = Π_mix
-                file["Σ_$(i_step + 1)"] = Σ
-                return file["Σ_ins_$(i_step + 1)"] = Σ_ins
-            end
         end
 
         # Test for convergence of quasiparticle properties
@@ -415,10 +382,49 @@ function Σ_LQSGW(
             end
         end
 
+        # Get the current Z-factor
+        Z_kgrid = zfactor_full(param, Σ_prev)
+
+        # # Get the current quasiparticle energy up to k=maxKS
+        # E_qp_kgrid = quasiparticle_energy(param, Σ_prev, Σ_ins_prev)
+
+        # Get gridded quasiparticle energy for Π_qp solver
+        E_qp_kGgrid = E_qp_grid(param, Σ_prev, Σ_ins_prev, kGgrid)
+
+        # Get interpolated quasiparticle Green's function G_qp
+        G = G_qp(param, Σ_prev, Σ_ins_prev, kGgrid; maxKS=maxKS)
+
+        # Get Π = Π_qp[G]
+        Π = Π_qp(param, E_qp_kGgrid, kGgrid, Nk, maxKP, minK, order, qPgrid, bdlr)
+
+        # Get Σ_curr[G, Π](k, τ)
+        Σ_curr, Σ_ins_curr = Σ_GW(G, Π)
+
+        # Mix the new and old self energies via linear interpolation:
+        # Σ_mix = (1 - α) * Σ_prev + α * Σ    
+        Σ_mix = lerp(Σ_prev, Σ_curr, alpha)
+        Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, alpha)
+
+        # Append self-energy at this step to JLD2 file
+        if save && rank == root
+            jldopen(joinpath(savedir, savename * "_$(i_step + 1)"), "a+") do file
+                # file["E_qp"] = E_qp_kgrid
+                file["E_qp"] = E_qp_kGgrid
+                file["Z"] = Z_kgrid
+                file["G"] = G
+                file["Π"] = Π
+                file["Σ"] = Σ_mix
+                file["Σ_ins"] = Σ_ins_mix
+                return
+            end
+        end
+
         # Prepare for next iteration
         i_step += 1
-        # G_prev = G
-        G_prev = G_mix
+        # # G_prev = G
+        # G_prev = G_mix
+        Σ_prev = Σ_mix
+        Σ_ins_prev = Σ_ins
         δμ_prev = δμ
         meff_prev = meff
         zfactor_prev = zfactor
@@ -428,5 +434,5 @@ function Σ_LQSGW(
             "\nWARNING: Convergence to atol = $atol not reached after $max_steps steps!",
         )
     end
-    return Σ, Σ_ins
+    return Σ_mix, Σ_ins_mix
 end
