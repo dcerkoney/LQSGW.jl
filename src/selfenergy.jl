@@ -407,7 +407,7 @@ function Σ_LQSGW(
 
         # Append self-energy at this step to JLD2 file
         if save && rank == root
-            jldopen(joinpath(savedir, savename * "_i=$(i_step + 1).jld2"), "a+") do file
+            jldopen(joinpath(savedir, savename * "_i=$(i_step + 1).jld2"), "w") do file
                 # file["E_qp"] = E_qp_kGgrid
                 file["E_qp"] = E_qp_kSgrid
                 file["Z"] = Z_kgrid
