@@ -427,6 +427,8 @@ function Σ_LQSGW(
         zfactor_prev = zfactor
         # # G_prev = G
         # G_prev = G_mix
+
+	GC.gc()
     end
     if i_step == max_steps && rank == root
         println(
