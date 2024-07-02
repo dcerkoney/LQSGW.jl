@@ -311,15 +311,14 @@ function Σ_LQSGW(
     bdlr = DLRGrid(Euv, β, rtol, false, :ph)
     Π0 = GreenFunc.MeshArray(ImFreq(bdlr), qPgrid; dtype=ComplexF64)
     for (qi, q) in enumerate(qPgrid)
-        Π0[:, qi] = Polarization.Polarization0_FiniteTemp(q, bdlr.n, param; maxk=maxKP)
-        # Π0[:, qi] = Polarization.Polarization0_FiniteTemp(
-        #     q,
-        #     bdlr.n,
-        #     param;
-        #     maxk=maxKP,
-        #     scaleN=40,
-        #     gaussN=20,
-        # )
+        Π0[:, qi] = Polarization.Polarization0_FiniteTemp(
+            q,
+            bdlr.n,
+            param;
+            maxk=maxKP / kF,
+            scaleN=50,
+            gaussN=25,
+        )
     end
 
     # Use exact Π0 for initial G0W0 self-energy: Σ[G0, Π0](k, τ)
