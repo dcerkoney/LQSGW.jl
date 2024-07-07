@@ -332,7 +332,7 @@ function Σ_LQSGW(
     if save && rank == root
         jldopen(joinpath(savedir, savename), "w") do file
             # Get W0 = W_qp[Π0] for plotting purposes only
-            W0 = W_qp(param, Π0; int_type=_int_type, kwargs...)
+            W0 = W_qp(param, Π0; int_type=_int_type, Fs=Fs, Fa=Fa)
             file["param"] = string(param)
             file["G_0"] = G0
             file["Π_0"] = Π0
@@ -341,8 +341,6 @@ function Σ_LQSGW(
             file["Σ_ins_0"] = Σ_ins
             file["E_k_0"] = E_qp_0
             file["Z_k_0"] = zfactor_prev * ones(length(E_qp_0))
-            file["Z_F_0"] = zfactor_prev
-            file["m*/m_0"] = meff
             return
         end
     end
@@ -415,7 +413,7 @@ function Σ_LQSGW(
         if save && rank == root
             jldopen(joinpath(savedir, savename), "a") do file
                 # Get W = W_qp[Π] for plotting purposes only
-                W = W_qp(param, Π_qp; int_type=_int_type, kwargs...)
+                W = W_qp(param, Π_qp; int_type=_int_type, Fs=Fs, Fa=Fa)
                 file["G_$(i_step + 1)"] = G
                 file["Π_$(i_step + 1)"] = Π
                 file["W_$(i_step + 1)"] = W
@@ -423,8 +421,6 @@ function Σ_LQSGW(
                 file["Σ_ins_$(i_step + 1)"] = Σ_ins_mix
                 file["E_k_$(i_step + 1)"] = E_qp_kSgrid
                 file["Z_k_$(i_step + 1)"] = Z_kgrid
-                file["Z_F_$(i_step + 1)"] = zfactor
-                file["m*/m_$(i_step + 1)"] = meff
                 return
             end
         end

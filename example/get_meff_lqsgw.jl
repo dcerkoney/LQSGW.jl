@@ -4,6 +4,8 @@ using MPI
 using Parameters
 using PyCall
 
+import LQSGW: println_root
+
 @pyimport numpy as np   # for saving/loading numpy data
 
 """
@@ -133,7 +135,7 @@ function main()
         Fs = get_Fs_PW(rs)
         Fa = get_Fa_PW(rs)
         # Compute LQSGW quasiparticle properties
-        println("Calculating LQSGW quasiparticle properties for rs = $rs...")
+        println_root("Calculating LQSGW quasiparticle properties for rs = $rs...")
         meff_rpa, z_rpa, dmu_rpa       = run_lqsgw(param, Euv, rtol, maxK, minK)
         meff_fp, z_fp, dmu_fp          = run_lqsgw(param, Euv, rtol, maxK, minK, int_type_fp, Fs, Fa)
         meff_fp_fm, z_fp_fm, dmu_fp_fm = run_lqsgw(param, Euv, rtol, maxK, minK, int_type_fp_fm, Fs, Fa)
@@ -146,7 +148,7 @@ function main()
         push!(dmulist_rpa, dmu_rpa)
         push!(dmulist_fp, dmu_fp)
         push!(dmulist_fp_fm, dmu_fp_fm)
-        println("Done.\n")
+        println_root("Done.\n")
     end
 
     # Add points at rs = 0
