@@ -26,7 +26,8 @@ export bare_energy,
     chemicalpotential,
     zfactor_fermi,
     zfactor_full,
-    massratio
+    massratio,
+    get_lqsgw_properties
 
 include("green.jl")
 export G_qp

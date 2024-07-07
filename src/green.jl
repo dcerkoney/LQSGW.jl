@@ -6,31 +6,69 @@ function G_qp(
     param::Parameter.Para,
     Σ::GreenFunc.MeshArray,
     Σ_ins::GreenFunc.MeshArray,
-    kGgrid;
-    maxKS=nothing,
+    kGgrid,
 )
     @unpack me, μ = param
     # Extract quasiparticle energy and Z-factor from the self-energy
     Z_kSgrid = zfactor_full(param, Σ)
     E_qp_kSgrid = quasiparticle_energy(param, Σ, Σ_ins)
     δμ = chemicalpotential(param, Σ, Σ_ins)
-
     # Interpolate the quasiparticle energy and Z-factor along the Green's
-    # function momentum mesh, masking values where k > maxKS if applicable
-    Z_k = []
-    E_qp_k = []
-    for k in kGgrid
-        if isnothing(maxKS) == false && k > maxKS
-            # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at maxKS)
-            Etilde_0 = k^2 / (2 * param.me) - (param.μ + δμ)
-            push!(Z_k, 1.0)
-            push!(E_qp_k, Etilde_0)
+    # function momentum mesh, masking values where k is larger than the
+    # largest k in the self-energy mesh
+    Z_k = Vector{Float64}(undef, length(kGgrid))
+    E_qp_k = Vector{Float64}(undef, length(kGgrid))
+    for (i, k) in enumerate(kGgrid)
+        # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
+        if k > maximum(Σ.mesh[2])
+            Z_k[i] = 1.0
+            E_qp_k[i] = k^2 / (2 * me) - (μ + δμ)
         else
-            push!(Z_k, Interp.interp1D(Z_kSgrid, Σ.mesh[2], k))
-            push!(E_qp_k, Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k))
+            Z_k[i] = Interp.interp1D(Z_kSgrid, Σ.mesh[2], k)
+            E_qp_k[i] = Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k)
         end
     end
+    # Build the Green's function MeshArray
+    wnmesh = Σ.mesh[1]
+    green = GreenFunc.MeshArray(wnmesh, kGgrid; dtype=ComplexF64)
+    for ind in eachindex(green)
+        iw, ik = ind[1], ind[2]
+        green[ind] = Z_k[ik] / (im * wnmesh[iw] - E_qp_k[ik])
+    end
+    return green
+end
 
+"""
+Compute the quasiparticle Green's function Gₖ(iωₙ) given Σ grid data.
+"""
+function G_qp(
+    param::Parameter.Para,
+    Z_kSgrid::T,
+    E_qp_kSgrid::T,
+    kGgrid::T,
+) where {T<:AbstractVector}
+    @unpack me, μ = param
+    @assert length(Z_kSgrid) == length(E_qp_kSgrid) "Z_kSgrid and E_qp_kSgrid must have the same lengths!"
+    # Extract quasiparticle energy and Z-factor from the self-energy
+    Z = zfactor_full(param, Σ)
+    E_qp_kSgrid = quasiparticle_energy(param, Σ, Σ_ins)
+    δμ = chemicalpotential(param, Σ, Σ_ins)
+    # Interpolate the quasiparticle energy and Z-factor along the Green's
+    # function momentum mesh, masking values where k is larger than the
+    # largest k in the self-energy mesh
+    Z_k = Vector{Float64}(undef, length(kGgrid))
+    E_qp_k = Vector{Float64}(undef, length(kGgrid))
+    for (i, k) in enumerate(kGgrid)
+        # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
+        if k > maximum(Σ.mesh[2])
+            Z_k[i] = 1.0
+            E_qp_k[i] = k^2 / (2 * me) - (μ + δμ)
+        else
+            Z_k[i] = Interp.interp1D(Z_kSgrid, Σ.mesh[2], k)
+            E_qp_k[i] = Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k)
+        end
+    end
+    # Build the Green's function MeshArray
     wnmesh = Σ.mesh[1]
     green = GreenFunc.MeshArray(wnmesh, kGgrid; dtype=ComplexF64)
     for ind in eachindex(green)

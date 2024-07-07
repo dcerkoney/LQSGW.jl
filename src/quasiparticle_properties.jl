@@ -62,9 +62,9 @@ function E_qp_grid(
     E_qp_k = Vector{Float64}(undef, length(kGgrid))
     # E_qp_k = Vector{eltype(E_qp_kSgrid)}(undef, length(kGgrid))
     for (i, k) in enumerate(kGgrid)
+        # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
         if k > maximum(Σ.mesh[2])
-            # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
-            E_qp_k[i] = k^2 / (2 * param.me) - (param.μ + δμ)
+            E_qp_k[i] = k^2 / (2 * me) - (μ + δμ)
         else
             E_qp_k[i] = Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k)
         end
@@ -88,9 +88,9 @@ function E_qp_interp(
     E_qp_k = Vector{Float64}(undef, length(kGgrid))
     # E_qp_k = Vector{eltype(E_qp_kSgrid)}(undef, length(kGgrid))
     for (i, k) in enumerate(kGgrid)
+        # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
         if k > maximum(Σ.mesh[2])
-            # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
-            E_qp_k[i] = k^2 / (2 * param.me) - (param.μ + δμ)
+            E_qp_k[i] = k^2 / (2 * me) - (μ + δμ)
         else
             E_qp_k[i] = Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k)
         end
@@ -220,4 +220,53 @@ function massratio(
     ds_dk = (sigma1 - sigma2) / (kgrid[k1] - kgrid[k2])
 
     return 1.0 / z / (1 + me / kamp * ds_dk), kamp
+end
+
+function get_lqsgw_properties(
+    param::Parameter.Para;
+    Euv=1000 * param.EF,
+    rtol=1e-14,
+    Nk=14,
+    maxK=6 * param.kF,
+    minK=1e-8 * param.kF,
+    order=10,
+    int_type=:rpa,
+    max_steps=100,
+    atol=1e-7,
+    alpha=0.3,
+    δK=5e-6,
+    Fs=0.0,
+    Fa=0.0,
+    verbose=false,
+    save=false,
+    mpi=false,
+    savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
+    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
+)
+    Σ, Σ_ins, converged = Σ_LQSGW(
+        param,
+        Euv,
+        rtol,
+        Nk,
+        maxK,
+        minK,
+        order,
+        int_type,
+        max_steps,
+        atol,
+        alpha,
+        δK,
+        Fs,
+        Fa,
+        verbose,
+        save,
+        mpi,
+        savedir,
+        savename,
+    )
+    @assert converged "LQSGW loop did not converge!"
+    meff = massratio(param, Σ, Σ_ins, δK)[1]
+    zfactor = zfactor_fermi(param, Σ)
+    dmu = chemicalpotential(param, Σ, Σ_ins)
+    return meff, zfactor, dmu
 end

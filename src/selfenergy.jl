@@ -158,7 +158,7 @@ function Σ_LQSGW(
     save=false,
     mpi=false,
     savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta)",
+    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
     return Σ_LQSGW(
         param,
@@ -330,14 +330,19 @@ function Σ_LQSGW(
 
     # Write initial (G0W0) self-energy to JLD2 file, overwriting if it already exists
     if save && rank == root
-        jldopen(joinpath(savedir, savename * "_i=0.jld2"), "w") do file
+        jldopen(joinpath(savedir, savename), "w") do file
+            # Get W0 = W_qp[Π0] for plotting purposes only
+            W0 = W_qp(param, Π0; int_type=_int_type, kwargs...)
             file["param"] = string(param)
-            file["E_qp"] = E_qp_0
-            file["Z"] = zfactor_prev * ones(length(E_qp_0))
-            file["G"] = G0
-            file["Π"] = Π0
-            file["Σ"] = Σ
-            file["Σ_ins"] = Σ_ins
+            file["G_0"] = G0
+            file["Π_0"] = Π0
+            file["W_0"] = W0
+            file["Σ_0"] = Σ
+            file["Σ_ins_0"] = Σ_ins
+            file["E_k_0"] = E_qp_0
+            file["Z_k_0"] = zfactor_prev * ones(length(E_qp_0))
+            file["Z_F_0"] = zfactor_prev
+            file["m*/m_0"] = meff
             return
         end
     end
@@ -347,6 +352,7 @@ function Σ_LQSGW(
         println("\nBegin self-consistency loop...\n")
     end
     i_step = 0
+    converged = false
     while i_step < max_steps
         # Get quasiparticle properties
         δμ = chemicalpotential(param, Σ_prev, Σ_ins_prev)
@@ -377,6 +383,7 @@ function Σ_LQSGW(
                 if rank == root
                     println("\nConverged to atol = $atol after $i_step steps!")
                 end
+                converged = true
                 break
             end
         end
@@ -391,7 +398,7 @@ function Σ_LQSGW(
         E_qp_kGgrid = E_qp_grid(param, Σ_prev, Σ_ins_prev, kGgrid)
 
         # Get interpolated quasiparticle Green's function G_qp
-        G = G_qp(param, Σ_prev, Σ_ins_prev, kGgrid; maxKS=maxKS)
+        G = G_qp(param, Σ_prev, Σ_ins_prev, kGgrid)
 
         # Get Π = Π_qp[G]
         Π = Π_qp(param, E_qp_kGgrid, kGgrid, Nk, maxKP, minK, order, qPgrid, bdlr)
@@ -406,14 +413,18 @@ function Σ_LQSGW(
 
         # Append self-energy at this step to JLD2 file
         if save && rank == root
-            jldopen(joinpath(savedir, savename * "_i=$(i_step + 1).jld2"), "w") do file
-                # file["E_qp"] = E_qp_kGgrid
-                file["E_qp"] = E_qp_kSgrid
-                file["Z"] = Z_kgrid
-                file["G"] = G
-                file["Π"] = Π
-                file["Σ"] = Σ_mix
-                file["Σ_ins"] = Σ_ins_mix
+            jldopen(joinpath(savedir, savename), "a") do file
+                # Get W = W_qp[Π] for plotting purposes only
+                W = W_qp(param, Π_qp; int_type=_int_type, kwargs...)
+                file["G_$(i_step + 1)"] = G
+                file["Π_$(i_step + 1)"] = Π
+                file["W_$(i_step + 1)"] = W
+                file["Σ_$(i_step + 1)"] = Σ_mix
+                file["Σ_ins_$(i_step + 1)"] = Σ_ins_mix
+                file["E_k_$(i_step + 1)"] = E_qp_kSgrid
+                file["Z_k_$(i_step + 1)"] = Z_kgrid
+                file["Z_F_$(i_step + 1)"] = zfactor
+                file["m*/m_$(i_step + 1)"] = meff
                 return
             end
         end
@@ -425,15 +436,15 @@ function Σ_LQSGW(
         δμ_prev = δμ
         meff_prev = meff
         zfactor_prev = zfactor
-        # # G_prev = G
-        # G_prev = G_mix
 
-	GC.gc()
+        # Explicit garbage collection resolves MPI-related memory leak
+        # TODO: Implement globally initialized (variable) MPI buffers.
+        GC.gc()
     end
     if i_step == max_steps && rank == root
         println(
             "\nWARNING: Convergence to atol = $atol not reached after $max_steps steps!",
         )
     end
-    return Σ_mix, Σ_ins_mix
+    return Σ_mix, Σ_ins_mix, converged
 end
