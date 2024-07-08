@@ -411,6 +411,7 @@ function Π_qp_static(
     progress_meter = Progress(
         local_length;
         desc="Progress (rank = 0): ",
+        output=stdout,
         showspeed=true,
         enabled=rank == root,
     )
@@ -543,6 +544,7 @@ function Π_qp_dynamic(
     progress_meter = Progress(
         local_length;
         desc="Progress (rank = 0): ",
+        output=stdout,
         showspeed=true,
         enabled=rank == root,
     )
@@ -632,6 +634,7 @@ function Π_qp_serial(
     progress_meter = Progress(
         local_length;
         desc="Progress (rank = 0): ",
+        output=stdout,
         showspeed=true,
         enabled=rank == root,
     )
@@ -736,6 +739,7 @@ function Π0_serial(
     progress_meter = Progress(
         local_length;
         desc="Progress (rank = 0): ",
+        output=stdout,
         showspeed=true,
         enabled=rank == root,
     )
