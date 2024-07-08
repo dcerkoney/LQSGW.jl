@@ -413,7 +413,7 @@ function Σ_LQSGW(
         if save && rank == root
             jldopen(joinpath(savedir, savename), "a") do file
                 # Get W = W_qp[Π] for plotting purposes only
-                W = W_qp(param, Π_qp; int_type=_int_type, Fs=Fs, Fa=Fa)
+                W = W_qp(param, Π; int_type=_int_type, Fs=Fs, Fa=Fa)
                 file["G_$(i_step + 1)"] = G
                 file["Π_$(i_step + 1)"] = Π
                 file["W_$(i_step + 1)"] = W
