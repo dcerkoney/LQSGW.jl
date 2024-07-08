@@ -47,7 +47,7 @@ function main()
     # Nk, order = 10, 7
 
     # LQSGW parameters
-    max_steps = 150
+    max_steps = 200
     atol = 1e-5
     #alpha = 0.2
     δK = 5e-6
@@ -55,9 +55,8 @@ function main()
     save = true
     constant_fs = true
 
-    alphalist = [0.3, 0.3, 0.3, 0.2, 0.2, 0.1, 0.1]
-    rslist = [0.01, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0]
-    # rslist = [1.0, 3.0]
+    alphalist = [0.3, 0.3, 0.3, 0.2, 0.2, 0.1, 0.1, 10.0]
+    rslist = [0.01, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0]
 
     # # rslist = [0.001; collect(LinRange(0.0, 1.1, 111))[2:end]]  # for accurate 2D HDL
     # # rslist = [0.005; collect(LinRange(0.0, 5.0, 101))[2:end]]  # for 2D
@@ -95,7 +94,12 @@ function main()
     dir = joinpath(@__DIR__, "results/$(dim)d")
 
     # Helper function to calculate LQSGW quasiparticle properties
-    function run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type=:rpa, Fs=0.0, Fa=0.0)
+    function run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type=:rpa, Fs=-0.0, Fa=-0.0)
+        if int_type in [:ko_const_p, :ko_const_pm]
+            _int_type = :ko_const
+        else
+            _int_type = int_type
+        end
         return get_lqsgw_properties(
             param;
             Euv=Euv,
@@ -104,26 +108,26 @@ function main()
             maxK=maxK,
             minK=minK,
             order=order,
-            int_type=int_type,
+            int_type=_int_type,
             max_steps=max_steps,
             atol=atol,
             alpha=alpha,
             δK=δK,
-            Fs=Fs,
-            Fa=Fa,
+            Fs=_int_type == :ko_const ? Fs : -0.0,
+            Fa=int_type == :ko_const_pm ? Fa : -0.0,
             verbose=verbose,
             save=save,
         )
     end
 
     # Calculate LQSGW effective mass ratios
-    #mefflist_rpa = []
+    mefflist_rpa = []
     mefflist_fp = []
     mefflist_fp_fm = []
-    #zlist_rpa = []
+    zlist_rpa = []
     zlist_fp = []
     zlist_fp_fm = []
-    #dmulist_rpa = []
+    dmulist_rpa = []
     dmulist_fp = []
     dmulist_fp_fm = []
     for (rs, alpha) in zip(rslist, alphalist)
@@ -140,16 +144,16 @@ function main()
         Fa = get_Fa_PW(rs)
         # Compute LQSGW quasiparticle properties
         println_root("Calculating LQSGW quasiparticle properties for rs = $rs...")
-        #meff_rpa, z_rpa, dmu_rpa       = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
-        meff_fp, z_fp, dmu_fp          = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp, Fs, Fa)
+        meff_rpa, z_rpa, dmu_rpa       = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
+        meff_fp, z_fp, dmu_fp          = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp, Fs)
         meff_fp_fm, z_fp_fm, dmu_fp_fm = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp_fm, Fs, Fa)
-        #push!(mefflist_rpa, meff_rpa)
+        push!(mefflist_rpa, meff_rpa)
         push!(mefflist_fp, meff_fp)
         push!(mefflist_fp_fm, meff_fp_fm)
-        #push!(zlist_rpa, z_rpa)
+        push!(zlist_rpa, z_rpa)
         push!(zlist_fp, z_fp)
         push!(zlist_fp_fm, z_fp_fm)
-        #push!(dmulist_rpa, dmu_rpa)
+        push!(dmulist_rpa, dmu_rpa)
         push!(dmulist_fp, dmu_fp)
         push!(dmulist_fp_fm, dmu_fp_fm)
         println_root("Done.\n")
@@ -157,25 +161,25 @@ function main()
 
     # Add points at rs = 0
     pushfirst!(rslist, 0.0)
-    #pushfirst!(mefflist_rpa, 1.0)
+    pushfirst!(mefflist_rpa, 1.0)
     pushfirst!(mefflist_fp, 1.0)
     pushfirst!(mefflist_fp_fm, 1.0)
-    #pushfirst!(zlist_rpa, 1.0)
+    pushfirst!(zlist_rpa, 1.0)
     pushfirst!(zlist_fp, 1.0)
     pushfirst!(zlist_fp_fm, 1.0)
-    #pushfirst!(dmulist_rpa, 0.0)
+    pushfirst!(dmulist_rpa, 0.0)
     pushfirst!(dmulist_fp, 0.0)
     pushfirst!(dmulist_fp_fm, 0.0)
 
     # Save the data
-    #f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa.npz"
+    f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa.npz"
     f2 = "$(ko_dirstr)/lqsgw_$(dim)d_fp.npz"
     f3 = "$(ko_dirstr)/lqsgw_$(dim)d_fp_fm.npz"
     i1 = i2 = i3 = 0
-    #while isfile(joinpath(dir, f1))
-    #    i1 += 1
-    #    f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa_$(i1).npz"
-    #end
+    while isfile(joinpath(dir, f1))
+        i1 += 1
+        f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa_$(i1).npz"
+    end
     while isfile(joinpath(dir, f2))
         i2 += 1
         f2 = "$(ko_dirstr)/lqsgw_$(dim)d_fp_$(i2).npz"
@@ -184,13 +188,13 @@ function main()
         i3 += 1
         f3 = "$(ko_dirstr)/lqsgw_$(dim)d_fp_fm_$(i3).npz"
     end
-    #np.savez(
-    #    joinpath(dir, f1);
-    #    rslist=rslist,
-    #    mefflist=mefflist_rpa,
-    #    zlist=zlist_rpa,
-    #    dmulist=dmulist_rpa,
-    #)
+    np.savez(
+        joinpath(dir, f1);
+        rslist=rslist,
+        mefflist=mefflist_rpa,
+        zlist=zlist_rpa,
+        dmulist=dmulist_rpa,
+    )
     np.savez(
         joinpath(dir, f2);
         rslist=rslist,
