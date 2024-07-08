@@ -175,11 +175,11 @@ function main()
     end
     while isfile(f2)
         i2 += 1
-        f2 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa_$(i2).npz"
+        f2 = "$(rpa_dirstr)/lqsgw_$(dim)d_fp_$(i2).npz"
     end
     while isfile(f3)
         i3 += 1
-        f3 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa_$(i3).npz"
+        f3 = "$(rpa_dirstr)/lqsgw_$(dim)d_fp_fm_$(i3).npz"
     end
     np.savez(
         joinpath(dir, f1);
