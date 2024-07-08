@@ -41,18 +41,19 @@ function main()
 
     # CompositeGrid parameters
     # Nk, order = 14, 10
-    # Nk, order = 12, 8
-    Nk, order = 10, 7
+    Nk, order = 12, 8
+    # Nk, order = 10, 7
 
     # LQSGW parameters
-    max_steps = 200
+    max_steps = 150
     atol = 1e-5
-    alpha = 0.3
+    #alpha = 0.2
     δK = 5e-6
     verbose = true
     save = true
     constant_fs = true
 
+    alphalist = [0.3, 0.3, 0.3, 0.2, 0.2, 0.1, 0.1]
     rslist = [0.01, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0]
     # rslist = [1.0, 3.0]
 
@@ -92,7 +93,7 @@ function main()
     dir = joinpath(@__DIR__, "results/$(dim)d")
 
     # Helper function to calculate LQSGW quasiparticle properties
-    function run_lqsgw(param, Euv, rtol, maxK, minK, int_type=:rpa, Fs=0.0, Fa=0.0)
+    function run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type=:rpa, Fs=0.0, Fa=0.0)
         return get_lqsgw_properties(
             param;
             Euv=Euv,
@@ -123,7 +124,7 @@ function main()
     dmulist_rpa = []
     dmulist_fp = []
     dmulist_fp_fm = []
-    for rs in rslist
+    for (rs, alpha) in zip(rslist, alphalist)
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF = param
         # DLR parameters
@@ -137,9 +138,9 @@ function main()
         Fa = get_Fa_PW(rs)
         # Compute LQSGW quasiparticle properties
         println_root("Calculating LQSGW quasiparticle properties for rs = $rs...")
-        meff_rpa, z_rpa, dmu_rpa       = run_lqsgw(param, Euv, rtol, maxK, minK)
-        meff_fp, z_fp, dmu_fp          = run_lqsgw(param, Euv, rtol, maxK, minK, int_type_fp, Fs, Fa)
-        meff_fp_fm, z_fp_fm, dmu_fp_fm = run_lqsgw(param, Euv, rtol, maxK, minK, int_type_fp_fm, Fs, Fa)
+        meff_rpa, z_rpa, dmu_rpa       = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
+        meff_fp, z_fp, dmu_fp          = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp, Fs, Fa)
+        meff_fp_fm, z_fp_fm, dmu_fp_fm = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp_fm, Fs, Fa)
         push!(mefflist_rpa, meff_rpa)
         push!(mefflist_fp, meff_fp)
         push!(mefflist_fp_fm, meff_fp_fm)

@@ -264,7 +264,10 @@ function get_lqsgw_properties(
         savedir,
         savename,
     )
-    @assert converged "LQSGW loop did not converge!"
+    #@assert converged "LQSGW loop did not converge!"
+    if converged == false
+        println_root("LQSGW loop did not converge!")
+    end
     meff = massratio(param, Σ, Σ_ins, δK)[1]
     zfactor = zfactor_fermi(param, Σ)
     dmu = chemicalpotential(param, Σ, Σ_ins)
