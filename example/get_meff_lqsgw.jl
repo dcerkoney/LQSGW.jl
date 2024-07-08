@@ -41,8 +41,8 @@ function main()
 
     # CompositeGrid parameters
     # Nk, order = 14, 10
-    Nk, order = 12, 8
-    # Nk, order = 10, 7
+    # Nk, order = 12, 8
+    Nk, order = 10, 7
 
     # LQSGW parameters
     max_steps = 200
@@ -54,6 +54,7 @@ function main()
     constant_fs = true
 
     rslist = [0.01, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0]
+    # rslist = [1.0, 3.0]
 
     # # rslist = [0.001; collect(LinRange(0.0, 1.1, 111))[2:end]]  # for accurate 2D HDL
     # # rslist = [0.005; collect(LinRange(0.0, 5.0, 101))[2:end]]  # for 2D
@@ -164,22 +165,38 @@ function main()
     pushfirst!(dmulist_fp_fm, 0.0)
 
     # Save the data
+    f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa.npz"
+    f2 = "$(ko_dirstr)/lqsgw_$(dim)d_fp.npz"
+    f3 = "$(ko_dirstr)/lqsgw_$(dim)d_fp_fm.npz"
+    i1 = i2 = i3 = 0
+    while isfile(f1)
+        i1 += 1
+        f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa_$(i1).npz"
+    end
+    while isfile(f2)
+        i2 += 1
+        f2 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa_$(i2).npz"
+    end
+    while isfile(f3)
+        i3 += 1
+        f3 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa_$(i3).npz"
+    end
     np.savez(
-        joinpath(dir, "$(rpa_dirstr)/lqsgw_$(dim)d_rpa.npz");
+        joinpath(dir, f1);
         rslist=rslist,
         mefflist=mefflist_rpa,
         zlist=zlist_rpa,
         dmulist=dmulist_rpa,
     )
     np.savez(
-        joinpath(dir, "$(ko_dirstr)/lqsgw_$(dim)d_fp.npz");
+        joinpath(dir, f2);
         rslist=rslist,
         mefflist=mefflist_fp,
         zlist=zlist_fp,
         dmulist=dmulist_fp,
     )
     np.savez(
-        joinpath(dir, "$(ko_dirstr)/lqsgw_$(dim)d_fp_fm.npz");
+        joinpath(dir, f3);
         rslist=rslist,
         mefflist=mefflist_fp_fm,
         zlist=zlist_fp_fm,

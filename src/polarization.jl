@@ -307,7 +307,7 @@ function Π_qp(
 )
     # Static polarization
     @assert bdlr.n[1] == 0 "Static point missing from frequency grid!"
-    println_root("Computing static quasiparticle polarizaion bubble Π(q, iω = 0)...")
+    println_root("Computing static quasiparticle polarization bubble Π(q, iω = 0)...")
     timed_res = @timed Π_qp_static(param, E_qp_kGgrid, kGgrid, Nk, maxK, minK, order, qgrid)
     Π_qw_static = timed_res.value
     println_root("done")
@@ -315,7 +315,7 @@ function Π_qp(
 
     # Dynamic polarization
     println_root(
-        "Computing dynamic quasiparticle polarizaion bubble Π(q, iω ≠ 0) with $(length(bdlr.n)) frequency points...",
+        "Computing dynamic quasiparticle polarization bubble Π(q, iω ≠ 0) with $(length(bdlr.n)) frequency points...",
     )
     timed_res =
         @timed Π_qp_dynamic(param, E_qp_kGgrid, kGgrid, Nk, maxK, minK, order, qgrid, bdlr)
