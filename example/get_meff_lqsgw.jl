@@ -18,8 +18,9 @@ compressibility ratio data of Perdew & Wang (1992) [Phys. Rev. B 45, 13244].
     #           "be inaccurate outside the metallic regime!"
     # end
     kappa0_over_kappa = 1.0025 - 0.1721rs - 0.0036rs^2
-    # F⁰ₛ = κ₀/κ - 1
-    return kappa0_over_kappa - 1.0
+    # NOTE: NEFT uses opposite sign convention for F!
+    # -F⁰ₛ = 1 - κ₀/κ
+    return 1.0 - kappa0_over_kappa
 end
 
 """
@@ -28,8 +29,9 @@ susceptibility ratio data (c.f. Kukkonen & Chen, 2021)
 """
 @inline function get_Fa_PW(rs)
     chi0_over_chi = 0.9821 - 0.1232rs + 0.0091rs^2
-    # F⁰ₐ = χ₀/χ - 1
-    return chi0_over_chi - 1.0
+    # NOTE: NEFT uses opposite sign convention for F!
+    # -F⁰ₐ = 1 - χ₀/χ
+    return 1.0 - chi0_over_chi
 end
 
 function main()
@@ -115,13 +117,13 @@ function main()
     end
 
     # Calculate LQSGW effective mass ratios
-    mefflist_rpa = []
+    #mefflist_rpa = []
     mefflist_fp = []
     mefflist_fp_fm = []
-    zlist_rpa = []
+    #zlist_rpa = []
     zlist_fp = []
     zlist_fp_fm = []
-    dmulist_rpa = []
+    #dmulist_rpa = []
     dmulist_fp = []
     dmulist_fp_fm = []
     for (rs, alpha) in zip(rslist, alphalist)
@@ -138,16 +140,16 @@ function main()
         Fa = get_Fa_PW(rs)
         # Compute LQSGW quasiparticle properties
         println_root("Calculating LQSGW quasiparticle properties for rs = $rs...")
-        meff_rpa, z_rpa, dmu_rpa       = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
+        #meff_rpa, z_rpa, dmu_rpa       = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
         meff_fp, z_fp, dmu_fp          = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp, Fs, Fa)
         meff_fp_fm, z_fp_fm, dmu_fp_fm = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp_fm, Fs, Fa)
-        push!(mefflist_rpa, meff_rpa)
+        #push!(mefflist_rpa, meff_rpa)
         push!(mefflist_fp, meff_fp)
         push!(mefflist_fp_fm, meff_fp_fm)
-        push!(zlist_rpa, z_rpa)
+        #push!(zlist_rpa, z_rpa)
         push!(zlist_fp, z_fp)
         push!(zlist_fp_fm, z_fp_fm)
-        push!(dmulist_rpa, dmu_rpa)
+        #push!(dmulist_rpa, dmu_rpa)
         push!(dmulist_fp, dmu_fp)
         push!(dmulist_fp_fm, dmu_fp_fm)
         println_root("Done.\n")
@@ -155,40 +157,40 @@ function main()
 
     # Add points at rs = 0
     pushfirst!(rslist, 0.0)
-    pushfirst!(mefflist_rpa, 1.0)
+    #pushfirst!(mefflist_rpa, 1.0)
     pushfirst!(mefflist_fp, 1.0)
     pushfirst!(mefflist_fp_fm, 1.0)
-    pushfirst!(zlist_rpa, 1.0)
+    #pushfirst!(zlist_rpa, 1.0)
     pushfirst!(zlist_fp, 1.0)
     pushfirst!(zlist_fp_fm, 1.0)
-    pushfirst!(dmulist_rpa, 0.0)
+    #pushfirst!(dmulist_rpa, 0.0)
     pushfirst!(dmulist_fp, 0.0)
     pushfirst!(dmulist_fp_fm, 0.0)
 
     # Save the data
-    f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa.npz"
+    #f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa.npz"
     f2 = "$(ko_dirstr)/lqsgw_$(dim)d_fp.npz"
     f3 = "$(ko_dirstr)/lqsgw_$(dim)d_fp_fm.npz"
     i1 = i2 = i3 = 0
-    while isfile(f1)
-        i1 += 1
-        f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa_$(i1).npz"
-    end
-    while isfile(f2)
+    #while isfile(joinpath(dir, f1))
+    #    i1 += 1
+    #    f1 = "$(rpa_dirstr)/lqsgw_$(dim)d_rpa_$(i1).npz"
+    #end
+    while isfile(joinpath(dir, f2))
         i2 += 1
-        f2 = "$(rpa_dirstr)/lqsgw_$(dim)d_fp_$(i2).npz"
+        f2 = "$(ko_dirstr)/lqsgw_$(dim)d_fp_$(i2).npz"
     end
-    while isfile(f3)
+    while isfile(joinpath(dir, f3))
         i3 += 1
-        f3 = "$(rpa_dirstr)/lqsgw_$(dim)d_fp_fm_$(i3).npz"
+        f3 = "$(ko_dirstr)/lqsgw_$(dim)d_fp_fm_$(i3).npz"
     end
-    np.savez(
-        joinpath(dir, f1);
-        rslist=rslist,
-        mefflist=mefflist_rpa,
-        zlist=zlist_rpa,
-        dmulist=dmulist_rpa,
-    )
+    #np.savez(
+    #    joinpath(dir, f1);
+    #    rslist=rslist,
+    #    mefflist=mefflist_rpa,
+    #    zlist=zlist_rpa,
+    #    dmulist=dmulist_rpa,
+    #)
     np.savez(
         joinpath(dir, f2);
         rslist=rslist,
