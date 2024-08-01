@@ -30,7 +30,7 @@ export bare_energy,
     get_lqsgw_properties
 
 include("green.jl")
-export G_qp
+export G_0, G_qp
 
 include("polarization.jl")
 export Π_qp

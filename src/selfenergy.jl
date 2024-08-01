@@ -257,7 +257,9 @@ function Σ_LQSGW(
     kSgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, maxKS], [0.0, kF], Nk, minK, order)
 
     # Get UEG G0; a large kgrid is required for the self-consistency loop
-    G0 = SelfEnergy.G0wrapped(Euv, rtol, kGgrid, param)
+    G0 = G_0(param, Euv, rtol, kGgrid; symmetry=:sym)
+    # G0 = G_0(param, Euv, rtol, kGgrid; symmetry=:none)  # same as SelfEnergy.G0Wrapped
+    # G0 = SelfEnergy.G0wrapped(Euv, rtol, kGgrid, param)
 
     # Verify that the non-interacting density is correct
     G0_dlr = to_dlr(G0)
@@ -328,19 +330,20 @@ function Σ_LQSGW(
     Σ_prev = Σ_mix = Σ
     Σ_ins_prev = Σ_ins_mix = Σ_ins
 
-    # Write initial (G0W0) self-energy to JLD2 file, overwriting if it already exists
+    # Write initial (G0W0) self-energy to JLD2 file, overwriting
+    # if it already exists (G0 -> Π0 -> W0 -> Σ1 = Σ_G0W0)
     if save && rank == root
         jldopen(joinpath(savedir, savename), "w") do file
             # Get W0 = W_qp[Π0] for plotting purposes only
             W0 = W_qp(param, Π0; int_type=_int_type, Fs=Fs, Fa=Fa)
             file["param"] = string(param)
+            file["E_k_0"] = E_qp_0
+            file["Z_k_0"] = zfactor_prev * ones(length(E_qp_0))
             file["G_0"] = G0
             file["Π_0"] = Π0
             file["W_0"] = W0
             file["Σ_0"] = Σ
             file["Σ_ins_0"] = Σ_ins
-            file["E_k_0"] = E_qp_0
-            file["Z_k_0"] = zfactor_prev * ones(length(E_qp_0))
             return
         end
     end
@@ -387,7 +390,7 @@ function Σ_LQSGW(
         end
 
         # Get the current Z-factor
-        Z_kgrid = zfactor_full(param, Σ_prev)
+        Z_kSgrid = zfactor_full(param, Σ_prev)
 
         # Get the current quasiparticle energy
         E_qp_kSgrid = quasiparticle_energy(param, Σ_prev, Σ_ins_prev)
@@ -409,18 +412,18 @@ function Σ_LQSGW(
         Σ_mix = lerp(Σ_prev, Σ_curr, alpha)
         Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, alpha)
 
-        # Append self-energy at this step to JLD2 file
+        # Append data at this step to JLD2 file (G -> Π -> W -> Σ)
         if save && rank == root
             jldopen(joinpath(savedir, savename), "a") do file
                 # Get W = W_qp[Π] for plotting purposes only
                 W = W_qp(param, Π; int_type=_int_type, Fs=Fs, Fa=Fa)
+                file["E_k_$(i_step + 1)"] = E_qp_kSgrid
+                file["Z_k_$(i_step + 1)"] = Z_kSgrid
                 file["G_$(i_step + 1)"] = G
                 file["Π_$(i_step + 1)"] = Π
                 file["W_$(i_step + 1)"] = W
                 file["Σ_$(i_step + 1)"] = Σ_mix
                 file["Σ_ins_$(i_step + 1)"] = Σ_ins_mix
-                file["E_k_$(i_step + 1)"] = E_qp_kSgrid
-                file["Z_k_$(i_step + 1)"] = Z_kgrid
                 return
             end
         end
