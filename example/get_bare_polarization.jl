@@ -36,8 +36,8 @@ function main()
     # CompositeGrid parameters
     # Nk, order = 20, 18
     # Nk, order = 14, 10
-    # Nk, order = 12, 8
-    Nk, order = 10, 7
+    Nk, order = 12, 8
+    # Nk, order = 10, 7
     # Nk, order = 8, 6
 
     # ElectronGas.jl defaults for G0W0 self-energy
@@ -80,6 +80,19 @@ function main()
     # Small grid for Σ
     kSgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, maxKS], [0.0, kF], Nk, minK, order)
 
+    Π0_qw_data = zeros(ComplexF64, length(bdlr.n), length(qPgrid.grid))
+    for (qi, q) in enumerate(qPgrid)
+        Π0_qw_data[:, qi] = Polarization.Polarization0_FiniteTemp(
+            q,
+            bdlr.n,
+            param;
+            maxk=maxKP / kF,
+            scaleN=40,
+            gaussN=20,
+        )
+    end
+    return
+
     # Get UEG G0; a large kgrid is required for the self-consistency loop
     @time G0 = SelfEnergy.G0wrapped(Euv, rtol, kGgrid, param)
     G0_dlr = to_dlr(G0)
@@ -121,7 +134,7 @@ function main()
     timed_res =
         @timed LQSGW.Π_qp(param, E_qp_kGgrid, kGgrid, Nk, maxKP, minK, order, qPgrid, bdlr)
     Π_qw = timed_res.value
-    Π_qt = Π_qw |> to_dlr |> to_imtime
+    Π_qt = to_imtime(to_dlr(Π_qw))
     println_root(timed_result_to_string(timed_res))
 
     # Print the dynamic polarization at q ≈ 0
@@ -134,18 +147,21 @@ function main()
         τgrid = bdlr.τ
         Π0_qw_data = zeros(ComplexF64, length(ngrid), length(qPgrid.grid))
         for (qi, q) in enumerate(qPgrid)
-            Π0_qw_data[:, qi] = Polarization.Polarization0_FiniteTemp(
-                q,
-                ngrid,
-                param;
-                maxk=maxKP,
-                scaleN=50,
-                gaussN=25,
-            )
+            Π0_qw_data[:, qi] =
+                Polarization.Polarization0_FiniteTemp(q, ngrid, param; maxk=maxKP / kF)
+            # Π0_qw_data[:, qi] = Polarization.Polarization0_FiniteTemp(
+            #     q,
+            #     ngrid,
+            #     param;
+            #     maxk=maxKP,
+            #     scaleN=50,
+            #     gaussN=25,
+            # )
         end
         # Build Π0(iν, q) mesh array
-        Π0_qw = GreenFunc.MeshArray(ImFreq(bdlr), qPgrid; dtype=Float64, data=real(Π0_qw_data))
-        Π0_qt = Π0_qw |> to_dlr |> to_imtime
+        Π0_qw =
+            GreenFunc.MeshArray(ImFreq(bdlr), qPgrid; dtype=Float64, data=real(Π0_qw_data))
+        Π0_qt = to_imtime(to_dlr(Π0_qw))
 
         np.savez(
             "pi_qp_cgrids_minK=$(round(minK / kF; sigdigits=4))kF_maxK=$(Int(round(maxK / kF; sigdigits=4)))kF_Nk=$(Nk)_order=$(order)_Euv=$(Int(round(Euv / EF)))EF_rtol=$(rtol).npz";

@@ -44,6 +44,16 @@ export GW, Σ_LQSGW
 # export ...
 
 """
+    function uniqueperm(a)
+
+Return the indices of unique elements of `a` in the order 
+they first appear, such that `a[uniqueperm(a)] == unique(a)`.
+"""
+function uniqueperm(a) 
+    return unique(i -> a[i], eachindex(a))
+end
+
+"""
     lerp(M_start, M_end, alpha)
 
 Helper function for linear interpolation with mixing parameter α.

@@ -1,4 +1,5 @@
 using ElectronGas
+using JLD2
 using LQSGW
 using MPI
 using Parameters
@@ -57,11 +58,17 @@ function main()
     verbose = true
     save = true
     constant_fs = true
+    #constant_fs = false
 
-    alphalist = []
-    rslist = []
+    rslist = round.([[0.01, 0.25, 0.5, 0.75]; LinRange(1.0, 10.0, 19)]; sigdigits=13)
+    alphalist = 0.3 * ones(length(rslist))
+
     # alphalist = [0.3, 0.3, 0.3, 0.2, 0.2, 0.1, 0.1]
+    #rslist = [0.25, 0.75, 1.5, 2.5, 3.5, 4.5, 5.5]
     # rslist = [0.01, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0]
+
+    #alphalist = [0.1, 0.1, 0.1, 0.1, 0.1]
+    #rslist = [6.0, 7.0, 8.0, 9.0, 10.0]
 
     # # rslist = [0.001; collect(LinRange(0.0, 1.1, 111))[2:end]]  # for accurate 2D HDL
     # # rslist = [0.005; collect(LinRange(0.0, 5.0, 101))[2:end]]  # for 2D
@@ -107,15 +114,10 @@ function main()
     end
 
     # Calculate LQSGW effective mass ratios
-    mefflist_rpa = []
-    mefflist_fp = []
-    mefflist_fp_fm = []
-    zlist_rpa = []
-    zlist_fp = []
-    zlist_fp_fm = []
-    dmulist_rpa = []
-    dmulist_fp = []
-    dmulist_fp_fm = []
+    # rs => (i, alpha, meff, z, dmu)
+    datadict_rpa = Dict(0.0 => (0, 1.0, 1.0, 1.0, 0.0))
+    datadict_fp = Dict(0.0 => (0, 1.0, 1.0, 1.0, 0.0))
+    datadict_fp_fm = Dict(0.0 => (0, 1.0, 1.0, 1.0, 0.0))
     for (rs, alpha) in zip(rslist, alphalist)
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF = param
@@ -130,80 +132,44 @@ function main()
         Fa = get_Fa_PW(rs)
         # Compute LQSGW quasiparticle properties
         println_root("Calculating LQSGW quasiparticle properties for rs = $rs...")
-        meff_rpa, z_rpa, dmu_rpa       = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
-        meff_fp, z_fp, dmu_fp          = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp, Fs)
-        meff_fp_fm, z_fp_fm, dmu_fp_fm = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp_fm, Fs, Fa)
-        push!(mefflist_rpa, meff_rpa)
-        push!(mefflist_fp, meff_fp)
-        push!(mefflist_fp_fm, meff_fp_fm)
-        push!(zlist_rpa, z_rpa)
-        push!(zlist_fp, z_fp)
-        push!(zlist_fp_fm, z_fp_fm)
-        push!(dmulist_rpa, dmu_rpa)
-        push!(dmulist_fp, dmu_fp)
-        push!(dmulist_fp_fm, dmu_fp_fm)
+        data_rpa = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
+        data_fp = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp, Fs)
+        data_fp_fm = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp_fm, Fs, Fa)
+        # Save data for this rs to dictionaries
+        _rs = round(rs; sigdigits=13)
+        for (dd, data) in zip(
+            [datadict_rpa, datadict_fp, datadict_fp_fm],
+            [data_rpa, data_fp, data_fp_fm],
+        )
+            haskey(dd, _rs) && error("Duplicate rs = $rs!")
+            dd[_rs] = (alpha, data...)
+        end
         println_root("Done.\n")
     end
 
-    # Add points at rs = 0
-    pushfirst!(rslist, 0.0)
-    pushfirst!(mefflist_rpa, 1.0)
-    pushfirst!(mefflist_fp, 1.0)
-    pushfirst!(mefflist_fp_fm, 1.0)
-    pushfirst!(zlist_rpa, 1.0)
-    pushfirst!(zlist_fp, 1.0)
-    pushfirst!(zlist_fp_fm, 1.0)
-    pushfirst!(dmulist_rpa, 0.0)
-    pushfirst!(dmulist_fp, 0.0)
-    pushfirst!(dmulist_fp_fm, 0.0)
-
     # Save the data
     if rank == root
-        # Make output directory if needed
-        d1 = "$(DATA_DIR)/$(dim)d/rpa"
-        d2 = "$(DATA_DIR)/$(dim)d/$(int_type_fp)"
-        d3 = "$(DATA_DIR)/$(dim)d/$(int_type_fp_fm)"
-        mkpath(d1)
-        mkpath(d2)
-        mkpath(d3)
-        # Avoid overwriting existing data
-        f1 = "lqsgw_$(dim)d_rpa.npz"
-        f2 = "lqsgw_$(dim)d_$(int_type_fp).npz"
-        f3 = "lqsgw_$(dim)d_$(int_type_fp_fm).npz"
-        i1 = i2 = i3 = 0
-        while isfile(joinpath(d1, f1))
-            i1 += 1
-            f1 = "lqsgw_$(dim)d_rpa_$(i1).npz"
-        end
-        while isfile(joinpath(d2, f2))
-            i2 += 1
-            f2 = "lqsgw_$(dim)d_$(int_type_fp)_$(i2).npz"
-        end
-        while isfile(joinpath(d3, f3))
-            i3 += 1
-            f3 = "lqsgw_$(dim)d_$(int_type_fp_fm)_$(i3).npz"
-        end
-        np.savez(
-            joinpath(d1, f1);
-            rslist=rslist,
-            mefflist=mefflist_rpa,
-            zlist=zlist_rpa,
-            dmulist=dmulist_rpa,
+        for (int_type, datadict) in zip(
+            [:rpa, int_type_fp, int_type_fp_fm],
+            [datadict_rpa, datadict_fp, datadict_fp_fm],
         )
-        np.savez(
-            joinpath(d2, f2);
-            rslist=rslist,
-            mefflist=mefflist_fp,
-            zlist=zlist_fp,
-            dmulist=dmulist_fp,
-        )
-        np.savez(
-            joinpath(d3, f3);
-            rslist=rslist,
-            mefflist=mefflist_fp_fm,
-            zlist=zlist_fp_fm,
-            dmulist=dmulist_fp_fm,
-        )
+            # Make output directory if needed
+            dir = "$(DATA_DIR)/$(dim)d/$(int_type)"
+            mkpath(dir)
+            # Avoid overwriting existing data
+            i = 0
+            f = "lqsgw_$(dim)d_$(int_type).jld2"
+            while isfile(joinpath(dir, f))
+                i += 1
+                f = "lqsgw_$(dim)d_$(int_type)_$(i).jld2"
+            end
+            # Save to JLD2
+            jldopen(joinpath(dir, f), "w") do file
+                for (k, v) in datadict
+                    file[string(k)] = v
+                end
+            end
+        end
     end
     MPI.Finalize()
     return
