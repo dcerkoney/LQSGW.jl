@@ -243,33 +243,42 @@ function get_lqsgw_properties(
     savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
-    Σ, Σ_ins, converged = Σ_LQSGW(
-        param,
-        Euv,
-        rtol,
-        Nk,
-        maxK,
-        minK,
-        order,
-        int_type,
-        max_steps,
-        atol,
-        alpha,
-        δK,
-        Fs,
-        Fa,
-        verbose,
-        save,
-        mpi,
-        savedir,
-        savename,
-    )
-    #@assert converged "LQSGW loop did not converge!"
-    if converged == false
-        println_root("LQSGW loop did not converge!")
+    # No-op at rs = 0
+    if param.rs == 0.0
+        i_step = 0
+        converged = true
+        meff = 1.0
+        zfactor = 1.0
+        dmu = 0.0
+    else
+        Σ, Σ_ins, i_step, converged = Σ_LQSGW(
+            param,
+            Euv,
+            rtol,
+            Nk,
+            maxK,
+            minK,
+            order,
+            int_type,
+            max_steps,
+            atol,
+            alpha,
+            δK,
+            Fs,
+            Fa,
+            verbose,
+            save,
+            mpi,
+            savedir,
+            savename,
+        )
+        #@assert converged "LQSGW loop did not converge!"
+        if converged == false
+            println_root("LQSGW loop did not converge!")
+        end
+        meff = massratio(param, Σ, Σ_ins, δK)[1]
+        zfactor = zfactor_fermi(param, Σ)
+        dmu = chemicalpotential(param, Σ, Σ_ins)
     end
-    meff = massratio(param, Σ, Σ_ins, δK)[1]
-    zfactor = zfactor_fermi(param, Σ)
-    dmu = chemicalpotential(param, Σ, Σ_ins)
-    return meff, zfactor, dmu
+    return (; atol, alpha, i_step, converged, meff, zfactor, dmu)
 end

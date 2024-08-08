@@ -51,7 +51,7 @@ function main()
     # Nk, order = 10, 7
 
     # LQSGW parameters
-    max_steps = 200
+    max_steps = 300
     atol = 1e-5
     #alpha = 0.2
     δK = 5e-6
@@ -60,8 +60,8 @@ function main()
     constant_fs = true
     #constant_fs = false
 
-    rslist = round.([[0.01, 0.25, 0.5, 0.75]; LinRange(1.0, 10.0, 19)]; sigdigits=13)
-    alphalist = 0.3 * ones(length(rslist))
+    rslist = round.([[0.0, 0.01, 0.25, 0.5, 0.75]; LinRange(1.0, 10.0, 19)]; sigdigits=13)
+    alphalist = 0.4 * ones(length(rslist))
 
     # alphalist = [0.3, 0.3, 0.3, 0.2, 0.2, 0.1, 0.1]
     #rslist = [0.25, 0.75, 1.5, 2.5, 3.5, 4.5, 5.5]
@@ -114,10 +114,9 @@ function main()
     end
 
     # Calculate LQSGW effective mass ratios
-    # rs => (i, alpha, meff, z, dmu)
-    datadict_rpa = Dict(0.0 => (0, 1.0, 1.0, 1.0, 0.0))
-    datadict_fp = Dict(0.0 => (0, 1.0, 1.0, 1.0, 0.0))
-    datadict_fp_fm = Dict(0.0 => (0, 1.0, 1.0, 1.0, 0.0))
+    datadict_rpa = Dict()
+    datadict_fp = Dict()
+    datadict_fp_fm = Dict()
     for (rs, alpha) in zip(rslist, alphalist)
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF = param
@@ -141,8 +140,8 @@ function main()
             [datadict_rpa, datadict_fp, datadict_fp_fm],
             [data_rpa, data_fp, data_fp_fm],
         )
-            haskey(dd, _rs) && error("Duplicate rs = $rs!")
-            dd[_rs] = (alpha, data...)
+            haskey(dd, _rs) && error("Duplicate rs = $(rs) found in LQSGW run!")
+            dd[_rs] = data
         end
         println_root("Done.\n")
     end

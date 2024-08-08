@@ -336,6 +336,7 @@ function Σ_LQSGW(
         jldopen(joinpath(savedir, savename), "w") do file
             # Get W0 = W_qp[Π0] for plotting purposes only
             W0 = W_qp(param, Π0; int_type=_int_type, Fs=Fs, Fa=Fa)
+            file["converged"] = false
             file["param"] = string(param)
             file["E_k_0"] = E_qp_0
             file["Z_k_0"] = zfactor_prev * ones(length(E_qp_0))
@@ -344,7 +345,6 @@ function Σ_LQSGW(
             file["W_0"] = W0
             file["Σ_0"] = Σ
             file["Σ_ins_0"] = Σ_ins
-            return
         end
     end
 
@@ -383,6 +383,9 @@ function Σ_LQSGW(
             if all([dmeff, dzfactor, ddeltamu] .< atol)
                 if rank == root
                     println("\nConverged to atol = $atol after $i_step steps!")
+                    jldopen(joinpath(savedir, savename), "a") do file
+                        file["converged"] = true
+                    end
                 end
                 converged = true
                 break
@@ -424,7 +427,6 @@ function Σ_LQSGW(
                 file["W_$(i_step + 1)"] = W
                 file["Σ_$(i_step + 1)"] = Σ_mix
                 file["Σ_ins_$(i_step + 1)"] = Σ_ins_mix
-                return
             end
         end
 
@@ -445,5 +447,5 @@ function Σ_LQSGW(
             "\nWARNING: Convergence to atol = $atol not reached after $max_steps steps!",
         )
     end
-    return Σ_mix, Σ_ins_mix, converged
+    return Σ_mix, Σ_ins_mix, i_step, converged
 end
