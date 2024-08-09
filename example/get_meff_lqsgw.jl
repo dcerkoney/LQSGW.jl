@@ -51,7 +51,7 @@ function main()
     # Nk, order = 10, 7
 
     # LQSGW parameters
-    max_steps = 300
+    max_steps = 200
     atol = 1e-5
     #alpha = 0.2
     δK = 5e-6
@@ -60,8 +60,17 @@ function main()
     constant_fs = true
     #constant_fs = false
 
-    rslist = round.([[0.0, 0.01, 0.25, 0.5, 0.75]; LinRange(1.0, 10.0, 19)]; sigdigits=13)
-    alphalist = 0.4 * ones(length(rslist))
+    calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
+    rslist = [6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+    alphalist = 0.3 * ones(length(rslist))
+
+    # calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
+    # rslist = [6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+    # alphalist = [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+
+    # # NOTE: α=0.3 converges up to rs=6 for all int_types
+    # rslist = round.([[0.0, 0.01, 0.25, 0.5, 0.75]; LinRange(1.0, 6.0, 11)]; sigdigits=13)
+    # alphalist = 0.3 * ones(length(rslist))
 
     # alphalist = [0.3, 0.3, 0.3, 0.2, 0.2, 0.1, 0.1]
     #rslist = [0.25, 0.75, 1.5, 2.5, 3.5, 4.5, 5.5]
@@ -117,7 +126,7 @@ function main()
     datadict_rpa = Dict()
     datadict_fp = Dict()
     datadict_fp_fm = Dict()
-    for (rs, alpha) in zip(rslist, alphalist)
+    for (rs, alpha, calc) in zip(rslist, alphalist, calclist)
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF = param
         # DLR parameters
@@ -131,9 +140,16 @@ function main()
         Fa = get_Fa_PW(rs)
         # Compute LQSGW quasiparticle properties
         println_root("Calculating LQSGW quasiparticle properties for rs = $rs...")
-        data_rpa = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
-        data_fp = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp, Fs)
-        data_fp_fm = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp_fm, Fs, Fa)
+        if calculate["rpa"]
+            data_rpa = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
+        end
+        if calculate["fp"]
+            data_fp = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp, Fs)
+        end
+        if calculate["fp_fm"]
+            data_fp_fm =
+                run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp_fm, Fs, Fa)
+        end
         # Save data for this rs to dictionaries
         _rs = round(rs; sigdigits=13)
         for (dd, data) in zip(
@@ -148,10 +164,12 @@ function main()
 
     # Save the data
     if rank == root
-        for (int_type, datadict) in zip(
+        for (int_type, datadict, calc) in zip(
             [:rpa, int_type_fp, int_type_fp_fm],
             [datadict_rpa, datadict_fp, datadict_fp_fm],
+            [calculate["rpa"], calculate["fp"], calculate["fp_fm"]],
         )
+            !calc && continue
             # Make output directory if needed
             dir = "$(DATA_DIR)/$(dim)d/$(int_type)"
             mkpath(dir)
