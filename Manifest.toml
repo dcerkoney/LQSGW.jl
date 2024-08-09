@@ -161,11 +161,7 @@ uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 version = "1.6.0"
 
 [[deps.ElectronGas]]
-<<<<<<< Updated upstream
-deps = ["CompositeGrids", "Cuba", "Distributed", "GreenFunc", "JLD2", "LegendrePolynomials", "Lehmann", "MCIntegration", "MPI", "Parameters", "Roots", "SharedArrays", "SpecialFunctions"]
-=======
 deps = ["CompositeGrids", "Cuba", "GreenFunc", "LegendrePolynomials", "Lehmann", "Parameters", "Roots", "SpecialFunctions"]
->>>>>>> Stashed changes
 path = "../ElectronGas.jl"
 uuid = "8c98e03e-8755-48b1-a5ef-1e2e7812a7c9"
 version = "0.2.5"
