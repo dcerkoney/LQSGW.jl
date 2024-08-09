@@ -140,6 +140,9 @@ function main()
         Fa = get_Fa_PW(rs)
         # Compute LQSGW quasiparticle properties
         println_root("Calculating LQSGW quasiparticle properties for rs = $rs...")
+        data_rpa = []
+        data_fp = []
+        data_fp_fm = []
         if calculate["rpa"]
             data_rpa = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
         end
