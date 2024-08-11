@@ -60,24 +60,26 @@ function main()
     constant_fs = true
     #constant_fs = false
 
+    # TODO: implement alpha scan at fixed rs
     calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
-    rslist = [6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
-    alphalist = 0.3 * ones(length(rslist))
+    rslist = [10.0]
+    alphalist = [0.1] 
 
+    # # NOTE: α=0.2 converges up to rs=9.5 for RPA
     # calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
-    # rslist = [6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
-    # alphalist = [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+    # rslist = [6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5]
+    # alphalist = [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
 
     # # NOTE: α=0.3 converges up to rs=6 for all int_types
     # rslist = round.([[0.0, 0.01, 0.25, 0.5, 0.75]; LinRange(1.0, 6.0, 11)]; sigdigits=13)
     # alphalist = 0.3 * ones(length(rslist))
 
     # alphalist = [0.3, 0.3, 0.3, 0.2, 0.2, 0.1, 0.1]
-    #rslist = [0.25, 0.75, 1.5, 2.5, 3.5, 4.5, 5.5]
+    # rslist = [0.25, 0.75, 1.5, 2.5, 3.5, 4.5, 5.5]
     # rslist = [0.01, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0]
 
-    #alphalist = [0.1, 0.1, 0.1, 0.1, 0.1]
-    #rslist = [6.0, 7.0, 8.0, 9.0, 10.0]
+    # alphalist = [0.1, 0.1, 0.1, 0.1, 0.1]
+    # rslist = [6.0, 7.0, 8.0, 9.0, 10.0]
 
     # # rslist = [0.001; collect(LinRange(0.0, 1.1, 111))[2:end]]  # for accurate 2D HDL
     # # rslist = [0.005; collect(LinRange(0.0, 5.0, 101))[2:end]]  # for 2D
