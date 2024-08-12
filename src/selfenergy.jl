@@ -155,6 +155,7 @@ function Σ_LQSGW(
     Fs=0.0,
     Fa=0.0,
     verbose=false,
+    show_progress=false,
     save=false,
     mpi=false,
     savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
@@ -176,6 +177,7 @@ function Σ_LQSGW(
         Fs,
         Fa,
         verbose,
+        show_progress,
         save,
         mpi,
         savedir,
@@ -199,6 +201,7 @@ function Σ_LQSGW(
     Fs,
     Fa,
     verbose,
+    show_progress,
     save,
     mpi,
     savedir,
@@ -353,7 +356,7 @@ function Σ_LQSGW(
     end
     i_step = 0
     converged = false
-    alpha_first_step = 0.01
+    # alpha_first_step = 0.01
     while i_step < max_steps
         # Get quasiparticle properties
         δμ = chemicalpotential(param, Σ_prev, Σ_ins_prev)
@@ -405,16 +408,32 @@ function Σ_LQSGW(
         G = G_qp(param, Σ_prev, Σ_ins_prev, kGgrid)
 
         # Get Π = Π_qp[G]
-        Π = Π_qp(param, E_qp_kGgrid, kGgrid, Nk, maxKP, minK, order, qPgrid, bdlr)
+        Π = Π_qp(
+            param,
+            E_qp_kGgrid,
+            kGgrid,
+            Nk,
+            maxKP,
+            minK,
+            order,
+            qPgrid,
+            bdlr;
+            verbose=verbose,
+            show_progress=show_progress,
+        )
 
         # Get Σ_curr[G, Π](k, τ)
         Σ_curr, Σ_ins_curr = Σ_GW(G, Π)
 
         # Mix the new and old self energies via linear interpolation:
         # Σ_mix = (1 - α) * Σ_prev + α * Σ    
-        _alpha = i_step == 0 ? alpha_first_step : alpha
-        Σ_mix = lerp(Σ_prev, Σ_curr, _alpha)
-        Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, _alpha)
+        Σ_mix = lerp(Σ_prev, Σ_curr, alpha)
+        Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, alpha)
+
+        # # TODO: Benchmark variable alpha
+        # _alpha = i_step == 0 ? alpha_first_step : alpha
+        # Σ_mix = lerp(Σ_prev, Σ_curr, _alpha)
+        # Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, _alpha)
 
         # Append data at this step to JLD2 file (G -> Π -> W -> Σ)
         if save && rank == root

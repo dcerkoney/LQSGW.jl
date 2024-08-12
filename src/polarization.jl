@@ -303,25 +303,48 @@ function Π_qp(
     minK,
     order,
     qgrid,
-    bdlr,
+    bdlr;
+    verbose=false,
+    show_progress=false,
 )
     # Static polarization
     @assert bdlr.n[1] == 0 "Static point missing from frequency grid!"
-    println_root("Computing static quasiparticle polarization bubble Π(q, iω = 0)...")
-    timed_res = @timed Π_qp_static(param, E_qp_kGgrid, kGgrid, Nk, maxK, minK, order, qgrid)
+    verbose &&
+        println_root("Computing static quasiparticle polarization bubble Π(q, iω = 0)...")
+    timed_res = @timed Π_qp_static(
+        param,
+        E_qp_kGgrid,
+        kGgrid,
+        Nk,
+        maxK,
+        minK,
+        order,
+        qgrid,
+        show_progress,
+    )
     Π_qw_static = timed_res.value
-    println_root("done")
-    println_root(timed_result_to_string(timed_res))
+    verbose && println_root("done")
+    verbose && println_root(timed_result_to_string(timed_res))
 
     # Dynamic polarization
-    println_root(
+    verbose && println_root(
         "Computing dynamic quasiparticle polarization bubble Π(q, iω ≠ 0) with $(length(bdlr.n)) frequency points...",
     )
-    timed_res =
-        @timed Π_qp_dynamic(param, E_qp_kGgrid, kGgrid, Nk, maxK, minK, order, qgrid, bdlr)
+    timed_res = @timed Π_qp_dynamic(
+        param,
+        E_qp_kGgrid,
+        kGgrid,
+        Nk,
+        maxK,
+        minK,
+        order,
+        qgrid,
+        bdlr,
+        show_progress,
+    )
     Π_qw_dynamic = timed_res.value
-    println_root("done")
-    println_root(timed_result_to_string(timed_res))
+    verbose && println_root("done")
+    verbose && println_root(timed_result_to_string(timed_res))
 
     # Return Π(iω, q) as a MeshArray
     return GreenFunc.MeshArray(
@@ -344,6 +367,7 @@ function Π_qp_static(
     minK,
     order,
     qgrid,
+    show_progress=false,
 )
     MPI.Init()
     root = 0
@@ -413,7 +437,7 @@ function Π_qp_static(
         desc="Progress (rank = 0): ",
         output=stdout,
         showspeed=true,
-        enabled=rank == root,
+        enabled=show_progress && rank == root,
     )
     local_kernel = Vector{ComplexF64}(undef, kgridmax)
     θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
@@ -471,6 +495,7 @@ function Π_qp_dynamic(
     order,
     qgrid,
     bdlr,
+    show_progress=false,
 )
     MPI.Init()
     root = 0
@@ -546,7 +571,7 @@ function Π_qp_dynamic(
         desc="Progress (rank = 0): ",
         output=stdout,
         showspeed=true,
-        enabled=rank == root,
+        enabled=show_progress && rank == root,
     )
     local_kernel = Vector{ComplexF64}(undef, kgridmax)
     θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
@@ -598,6 +623,7 @@ function Π_qp_serial(
     order,
     qgrid,
     bdlr,
+    show_progress=false,
 )
     @unpack kF, β, EF = param
     # # Build kgrids which are log-densed at q/2 and kF for each q in qgrid
@@ -636,7 +662,7 @@ function Π_qp_serial(
         desc="Progress (rank = 0): ",
         output=stdout,
         showspeed=true,
-        enabled=rank == root,
+        enabled=show_progress && rank == root,
     )
     kernel = zeros(ComplexF64, kgridmax)
     θ_integrand = zeros(ComplexF64, length(θgrid.grid))
@@ -689,6 +715,7 @@ function Π0_serial(
     order,
     qgrid,
     bdlr,
+    show_progress=false,
 )
     @unpack kF, β, EF = param
     kGgrid = G0.mesh[2]
@@ -741,7 +768,7 @@ function Π0_serial(
         desc="Progress (rank = 0): ",
         output=stdout,
         showspeed=true,
-        enabled=rank == root,
+        enabled=show_progress,
     )
     kernel = zeros(ComplexF64, kgridmax)
     θ_integrand = zeros(ComplexF64, length(θgrid.grid))
@@ -773,7 +800,9 @@ function Π0_serial(
                 kgrid,
             )
         end
+        next!(progress_meter)
     end
+    finish!(progress_meter)
     Π_qw_data /= (4 * π^2)
     Π_qw = GreenFunc.MeshArray(ImFreq(bdlr), qgrid; data=Π_qw_data, dtype=ComplexF64)
     return Π_qw
