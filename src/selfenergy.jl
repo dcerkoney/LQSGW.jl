@@ -353,6 +353,7 @@ function Σ_LQSGW(
     end
     i_step = 0
     converged = false
+    alpha_first_step = 0.01
     while i_step < max_steps
         # Get quasiparticle properties
         δμ = chemicalpotential(param, Σ_prev, Σ_ins_prev)
@@ -411,8 +412,9 @@ function Σ_LQSGW(
 
         # Mix the new and old self energies via linear interpolation:
         # Σ_mix = (1 - α) * Σ_prev + α * Σ    
-        Σ_mix = lerp(Σ_prev, Σ_curr, alpha)
-        Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, alpha)
+        _alpha = i_step == 0 ? alpha_first_step : alpha
+        Σ_mix = lerp(Σ_prev, Σ_curr, _alpha)
+        Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, _alpha)
 
         # Append data at this step to JLD2 file (G -> Π -> W -> Σ)
         if save && rank == root

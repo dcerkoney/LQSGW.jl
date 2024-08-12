@@ -51,7 +51,7 @@ function main()
     # Nk, order = 10, 7
 
     # LQSGW parameters
-    max_steps = 200
+    max_steps = 500
     atol = 1e-5
     #alpha = 0.2
     δK = 5e-6
@@ -59,6 +59,10 @@ function main()
     save = true
     constant_fs = true
     #constant_fs = false
+
+    #calculate = Dict("rpa" => false, "fp" => true, "fp_fm" => false)
+    #rslist = [6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+    #alphalist = [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1]
 
     # TODO: implement alpha scan at fixed rs
     calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
@@ -71,6 +75,7 @@ function main()
     # alphalist = [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
 
     # # NOTE: α=0.3 converges up to rs=6 for all int_types
+    # calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => true)
     # rslist = round.([[0.0, 0.01, 0.25, 0.5, 0.75]; LinRange(1.0, 6.0, 11)]; sigdigits=13)
     # alphalist = 0.3 * ones(length(rslist))
 
