@@ -28,7 +28,6 @@ function merge_data(int_type, dim, overwrite, saveto)
             istr = i == 0 ? "" : "_$(i)"
             d = np.load(joinpath(data_path, "lqsgw_$(dim)d_$(int_type)$(istr).npz"))
             println("Found $(int_type) data #$(i+1) in subdirectory $(data_path)")
-
             for (rs, meff, z, dmu) in zip((d.get(k) for k in npz_keys)...)
                 println("rs = $(rs), meff = $(meff), z = $(z), dmu = $(dmu)")
                 _rs = round(rs; sigdigits=13)
