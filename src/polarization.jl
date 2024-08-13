@@ -505,7 +505,9 @@ function Π_qp_dynamic(
 
     # A larger momentum grid for internal integrations is needed to accurately
     # compute the static polarization and adequately reduce the error near q=0.
-    # multiplier = 3
+    Nk_integrate = 40
+    order_integrate = 30
+    # multiplier = 4
     # Nk_integrate = round(Int, multiplier * Nk)
     # order_integrate = round(Int, multiplier * order)
 
@@ -526,15 +528,15 @@ function Π_qp_dynamic(
         ),
     )
 
-    # θgrid = CompositeGrid.LogDensedGrid(
-    #     :gauss,
-    #     [0.0, π],
-    #     [0.0, π],
-    #     Nk_integrate,
-    #     minK,
-    #     order_integrate,
-    # )
-    θgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], 30, minK, 20)
+    θgrid = CompositeGrid.LogDensedGrid(
+        :gauss,
+        [0.0, π],
+        [0.0, π],
+        Nk_integrate,
+        minK,
+        order_integrate,
+    )
+    # θgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], 30, minK, 20)
 
     # Initialize Π(iω, q)
     wngrid = bdlr.ωn[2:end]  # skip static point
