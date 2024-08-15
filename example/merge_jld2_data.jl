@@ -48,7 +48,7 @@ function merge_data(int_type, dim, overwrite)
                     "Found $(i+1) $(int_type) data files in subdirectory $(data_path), saving merged data...",
                 )
                 jldopen(
-                    joinpath(data_path, "lqsgw_$(dim)d_$(int_type)$(suffix).jld2"),
+                    joinpath(data_path, "lqsgw_$(dim)d_$(int_type)$(suffix)_new.jld2"),
                     "w",
                 ) do file
                     for (k, v) in datadict

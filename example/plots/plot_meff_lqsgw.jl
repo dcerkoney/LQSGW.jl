@@ -50,7 +50,7 @@ end
 function main()
     # UEG parameters
     beta = 40.0
-    rs = 1.0
+    rs = 5.0
     dim = 3
     param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
     @unpack kF, EF, β = param
@@ -69,7 +69,7 @@ function main()
     minK = 1e-6 * kF
 
     # Test LQSGW parameters
-    max_steps = 150
+    max_steps = 500
     int_type = :rpa
 
     # ElectronGas.jl defaults for G0W0 self-energy
@@ -133,7 +133,148 @@ function main()
         return data, n_max
     end
 
-    colors(n) = reverse(hex.((sequential_palette(0, n; s=100))))
+    colors(n) = reverse(hex.((colormap("Reds", n; mid=0.8, logscale=true))))
+    # colors(n) = reverse(hex.((sequential_palette(0, n; s=1))))
+
+    # Plot Z, Sigma, and E_qp from first iteration side-by-side
+    nrows, ncols, wspace = 2, 3, 0.4
+    plt.figure(; figsize=(5 * ncols + wspace * (ncols), 5 * nrows))
+    ax1 = plt.subplot(nrows, ncols, 1)
+    ax2 = plt.subplot(nrows, ncols, 2)
+    ax3 = plt.subplot(nrows, ncols, 3)
+    ax4 = plt.subplot(nrows, ncols, 4)
+    ax5 = plt.subplot(nrows, ncols, 5)
+    ax6 = plt.subplot(nrows, ncols, 6)
+
+    Σinsqp, nsi = loaddata("Σ_ins")
+    Σqp, ns = loaddata("Σ")
+    Eqp, ne = loaddata("E_k")
+    Zqp, nz = loaddata("Z_k")
+    Πqp, np = loaddata("Π")
+    Wqp, nw = loaddata("W")
+
+    Σins0 = real(Σinsqp[1][1, :])
+    Σins1 = real(Σinsqp[2][1, :])
+    Σins2 = real(Σinsqp[3][1, :])
+    Σinssc = real(Σinsqp[end][1, :])
+    Σ0 = real(Σqp[1][1, :])
+    Σ1 = real(Σqp[2][1, :])
+    Σ2 = real(Σqp[3][1, :])
+    Σsc = real(Σqp[end][1, :])
+    E0 = Eqp[1]
+    E1 = Eqp[2]
+    E2 = Eqp[3]
+    Esc = Eqp[end]
+    Z0 = Zqp[1]
+    Z1 = Zqp[2]
+    Z2 = Zqp[3]
+    Zsc = Zqp[end]
+    Π0 = real(Πqp[1][1, :])
+    Π1 = real(Πqp[2][1, :])
+    Π2 = real(Πqp[3][1, :])
+    Πsc = real(Πqp[end][1, :])
+    W0 = real(Wqp[1][1, :])
+    W1 = real(Wqp[2][1, :])
+    W2 = real(Wqp[3][1, :])
+    Wsc = real(Wqp[end][1, :])
+    V = [Interaction.coulomb(q, param)[1] for q in qPgrid]
+
+    for (i, si) in enumerate(Σinsqp)
+        i == 1 && continue
+        ax1.plot(kSgrid / kF, real(si[1, :]); color="#$(colors(nsi + 1)[i])")
+    end
+    ax1.plot(kSgrid / kF, Σins0, "--"; color="k", lw=1.5, label="\$i=0\$")
+    ax1.plot(kSgrid / kF, Σins1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
+    ax1.plot(kSgrid / kF, Σins2; color=cdict["red"], lw=1.5, label="\$i=2\$")
+    ax1.plot(kSgrid / kF, Σinssc; color=cdict["teal"], lw=1.5, label="self-consistent")
+
+    for (i, s) in enumerate(Σqp)
+        i == 1 && continue
+        ax2.plot(kSgrid / kF, real(s[1, :]); color="#$(colors(ns + 1)[i])")
+    end
+    ax2.plot(kSgrid / kF, Σ0, "--"; color="k", lw=1.5, label="\$i=0\$")
+    ax2.plot(kSgrid / kF, Σ1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
+    ax2.plot(kSgrid / kF, Σ2; color=cdict["red"], lw=1.5, label="\$i=2\$")
+    ax2.plot(kSgrid / kF, Σsc; color=cdict["teal"], lw=1.5, label="self-consistent")
+
+    for (i, e) in enumerate(Eqp)
+        i == 1 && continue
+        ax3.plot(kSgrid / kF, e; color="#$(colors(ne + 1)[i])")
+    end
+    ax3.plot(kSgrid / kF, E0, "--"; color="k", lw=1.5, label="\$i=0\$")
+    ax3.plot(kSgrid / kF, E1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
+    ax3.plot(kSgrid / kF, E2; color=cdict["red"], lw=1.5, label="\$i=2\$")
+    ax3.plot(kSgrid / kF, Esc; color=cdict["teal"], lw=1.5, label="self-consistent")
+
+    for (i, z) in enumerate(Zqp)
+        i == 1 && continue
+        ax4.plot(kSgrid / kF, z; color="#$(colors(nz + 1)[i])")
+    end
+    ax4.plot(kSgrid / kF, Z0, "--"; color="k", lw=1.5, label="\$i=0\$")
+    ax4.plot(kSgrid / kF, Z1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
+    ax4.plot(kSgrid / kF, Z2; color=cdict["red"], lw=1.5, label="\$i=2\$")
+    ax4.plot(kSgrid / kF, Zsc; color=cdict["teal"], lw=1.5, label="self-consistent")
+
+    for (i, p) in enumerate(Πqp)
+        i == 1 && continue
+        ax5.plot(qPgrid / kF, real(p[1, :]); color="#$(colors(np + 1)[i])")
+    end
+    ax5.plot(qPgrid / kF, Π0, "--"; color="k", lw=1.5, label="\$i=0\$")
+    ax5.plot(qPgrid / kF, Π1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
+    ax5.plot(qPgrid / kF, Π2; color=cdict["red"], lw=1.5, label="\$i=2\$")
+    ax5.plot(qPgrid / kF, Πsc; color=cdict["teal"], lw=1.5, label="self-consistent")
+
+    for (i, w) in enumerate(Wqp)
+        i == 1 && continue
+        ax6.plot(qPgrid / kF, 1 .+ real(w[1, :]) ./ V; color="#$(colors(nw + 1)[i])")
+    end
+    ax6.plot(qPgrid / kF, 1 .+ W0 ./ V, "--"; color="k", lw=1.5, label="\$i=0\$")
+    ax6.plot(qPgrid / kF, 1 .+ W1 ./ V; color=cdict["grey"], lw=1.5, label="\$i=1\$")
+    ax6.plot(qPgrid / kF, 1 .+ W2 ./ V; color=cdict["red"], lw=1.5, label="\$i=2\$")
+    ax6.plot(
+        qPgrid / kF,
+        1 .+ Wsc ./ V;
+        color=cdict["teal"],
+        lw=1.5,
+        label="self-consistent",
+    )
+
+    ax1.set_ylabel("\$\\Sigma_\\text{ins}(k, i\\omega_0)\$")
+    ax2.set_ylabel("\$\\Sigma_\\text{dyn}(k, i\\omega_0)\$")
+    ax3.set_ylabel("\$\\mathcal{E}_\\text{qp}(k)\$")
+    ax4.set_ylabel("\$Z(k)\$")
+    ax5.set_ylabel("\$\\Pi_\\text{qp}(q, 0)\$")
+    ax6.set_ylabel("\$\\epsilon^{-1}_\\text{qp}(q, 0) = W_\\text{qp}(q, 0) / V(q)\$")
+
+    ax1.set_xlim(0, 2)
+    ax1.set_ylim(-0.54, 0.02)
+    ax2.set_xlim(0, 2)
+    ax2.set_ylim(-5.2e-8, 0.2e-8)
+    ax3.set_xlim(0, 2)
+    ax3.set_ylim(-0.22, 0.22)
+    ax4.set_xlim(0, 4)
+    ax5.set_xlim(0, 4)
+    ax6.set_xlim(0, 4)
+    # ax5.set_xlim(0, 0.1)
+
+    # x-axis on last subplot
+    ax1.set_xlabel("\$k / k_F\$")
+    ax2.set_xlabel("\$k / k_F\$")
+    ax3.set_xlabel("\$k / k_F\$")
+    ax4.set_xlabel("\$k / k_F\$")
+    ax5.set_xlabel("\$q / k_F\$")
+    ax6.set_xlabel("\$q / k_F\$")
+
+    ax1.legend(; loc="lower right", fontsize=14)
+    ax2.legend(; loc="lower right", fontsize=14)
+    ax3.legend(; loc="lower right", fontsize=14)
+    ax4.legend(; loc="lower right", fontsize=14)
+    ax5.legend(; loc="lower right", fontsize=14)
+    ax6.legend(; loc="lower right", fontsize=14)
+
+    plt.subplots_adjust(; wspace=wspace)
+    plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs).pdf")
+    return
 
     # Plot Σ_ins convergence
     fig, ax = plt.subplots()
