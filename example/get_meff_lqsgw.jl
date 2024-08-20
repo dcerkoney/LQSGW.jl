@@ -144,7 +144,7 @@ function main()
             Fa=int_type == :ko_const_pm ? Fa : -0.0,
             verbose=verbose,
             save=save,
-            loadname=nothing,
+            loadname=loadname,
         )
     end
 
