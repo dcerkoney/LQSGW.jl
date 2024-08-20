@@ -288,38 +288,46 @@ function Σ_LQSGW(
         return Σ, Σ_ins
     end
 
-    local E_qp_0, Z_0, G0, Π0, W0, Σ, Σ_ins, Σ_prev, Σ_ins_prev, Σ_mix, Σ_ins_mix
+    local E_qp_0, Z_0, G0, Π0, W0, Σ_prev, Σ_ins_prev, Σ_mix, Σ_ins_mix
     if isnothing(loaddir) == false && isnothing(loadname) == false
-        # Load starting point from JLD2 file, handling all ranks sequentially to avoid data races.
-        # TODO: switch this to an MPI broadcast
-        for i in 0:(comm_size - 1)
-            if rank == i
-                jldopen(joinpath(loaddir, loadname), "r") do file
-                    # Ensure that the load data was convergent
-                    @assert file["converged"] == true "Specificed starting point data did not converge!"
-                    # Find the converged data in JLD2 file
-                    max_step = -1
-                    for i in 0:MAXIMUM_STEPS
-                        if haskey(file, "E_k_$(i)")
-                            max_step = i
-                        else
-                            break
-                        end
+        if rank == root
+            # Load starting point from JLD2 file
+            jldopen(joinpath(loaddir, loadname), "r") do file
+                # Ensure that the load data was convergent
+                @assert file["converged"] == true "Specificed starting point data did not converge!"
+                # Find the converged data in JLD2 file
+                max_step = -1
+                for j in 0:MAXIMUM_STEPS
+                    if haskey(file, "E_k_$(j)")
+                        max_step = j
+                    else
+                        break
                     end
-                    if max_step < 0 && rank == root
-                        error("No data found in $(savedir)!")
-                    end
-                    E_qp_0 = file["E_k_$(max_step)"]
-                    Z_0 = file["Z_k_$(max_step)"]
-                    G0 = file["G_$(max_step)"]
-                    Π0 = file["Π_$(max_step)"]
-                    W0 = file["W_$(max_step)"]
-                    Σ_prev = Σ_mix = file["Σ_$(max_step)"]
-                    Σ_ins_prev = Σ_ins_mix = file["Σ_ins_$(max_step)"]
                 end
+                if max_step < 0
+                    error("No data found in $(savedir)!")
+                end
+                E_qp_0 = file["E_k_$(maxz_step)"]
+                Z_0 = file["Z_k_$(max_step)"]
+                G0 = file["G_$(max_step)"]
+                Π0 = file["Π_$(max_step)"]
+                W0 = file["W_$(max_step)"]
+                Σ_prev = Σ_mix = file["Σ_$(max_step)"]
+                Σ_ins_prev = Σ_ins_mix = file["Σ_ins_$(max_step)"]
             end
-            MPI.Barrier(comm)
+        else
+            E_qp_0 = Z_0 = G0 = Π0 = W0 = Σ_prev = Σ_ins_prev = Σ_mix = Σ_ins_mix = nothing
         end
+        # Broadcast starting point data to all processes
+        E_qp_0 = MPI.Bcast(E_qp_0, root, comm)
+        Z_0 = MPI.Bcast(Z_0, root, comm)
+        G0 = MPI.Bcast(G0, root, comm)
+        Π0 = MPI.Bcast(Π0, root, comm)
+        W0 = MPI.Bcast(W0, root, comm)
+        Σ_prev = MPI.Bcast(Σ_prev, root, comm)
+        Σ_ins_prev = MPI.Bcast(Σ_ins_prev, root, comm)
+        Σ_mix = MPI.Bcast(Σ_mix, root, comm)
+        Σ_ins_mix = MPI.Bcast(Σ_ins_mix, root, comm)
     else
         # Get UEG G0; a large kgrid is required for the self-consistency loop
         G0 = G_0(param, Euv, rtol, kGgrid; symmetry=:sym)
