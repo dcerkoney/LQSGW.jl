@@ -319,15 +319,15 @@ function Σ_LQSGW(
             E_qp_0 = Z_0 = G0 = Π0 = W0 = Σ_prev = Σ_ins_prev = Σ_mix = Σ_ins_mix = nothing
         end
         # Broadcast starting point data to all processes
-        E_qp_0 = MPI.Bcast(E_qp_0, root, comm)
-        Z_0 = MPI.Bcast(Z_0, root, comm)
-        G0 = MPI.Bcast(G0, root, comm)
-        Π0 = MPI.Bcast(Π0, root, comm)
-        W0 = MPI.Bcast(W0, root, comm)
-        Σ_prev = MPI.Bcast(Σ_prev, root, comm)
-        Σ_ins_prev = MPI.Bcast(Σ_ins_prev, root, comm)
-        Σ_mix = MPI.Bcast(Σ_mix, root, comm)
-        Σ_ins_mix = MPI.Bcast(Σ_ins_mix, root, comm)
+        E_qp_0 = MPI.bcast(E_qp_0, root, comm)
+        Z_0 = MPI.bcast(Z_0, root, comm)
+        G0 = MPI.bcast(G0, root, comm)
+        Π0 = MPI.bcast(Π0, root, comm)
+        W0 = MPI.bcast(W0, root, comm)
+        Σ_prev = MPI.bcast(Σ_prev, root, comm)
+        Σ_ins_prev = MPI.bcast(Σ_ins_prev, root, comm)
+        Σ_mix = MPI.bcast(Σ_mix, root, comm)
+        Σ_ins_mix = MPI.bcast(Σ_ins_mix, root, comm)
     else
         # Get UEG G0; a large kgrid is required for the self-consistency loop
         G0 = G_0(param, Euv, rtol, kGgrid; symmetry=:sym)
