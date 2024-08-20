@@ -15,6 +15,7 @@ using Parameters
 
 # using ..Parameter, ..Convention, ..Polarization, ..Interaction, ..LegendreInteraction, ..SelfEnergy
 
+const MAXIMUM_STEPS = 1000
 const PROJECT_ROOT = pkgdir(LQSGW)
 const DATA_DIR = joinpath(PROJECT_ROOT, "data")
 

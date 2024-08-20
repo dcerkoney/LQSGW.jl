@@ -243,7 +243,10 @@ function get_lqsgw_properties(
     mpi=false,
     savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
+    loaddir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
+    loadname=nothing,
 )
+    @assert max_steps ≤ MAXIMUM_STEPS "max_steps must be ≤ $MAXIMUM_STEPS"
     # No-op at rs = 0
     if param.rs == 0.0
         i_step = 0
@@ -273,6 +276,8 @@ function get_lqsgw_properties(
             mpi,
             savedir,
             savename,
+            loaddir,
+            loadname,
         )
         #@assert converged "LQSGW loop did not converge!"
         if converged == false
