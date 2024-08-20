@@ -64,7 +64,7 @@ function main()
     use_prev_rs = true
 
     calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
-    rslist = [0.0, 0.01, 0.25]
+    rslist = [0.01, 0.25, 0.5]
     alphalist = [0.3, 0.3, 0.3]
 
     #calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)

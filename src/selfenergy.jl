@@ -240,6 +240,9 @@ function Σ_LQSGW(
         _int_type = int_type
     end
 
+    # Bosonic DLR grid
+    bdlr = DLRGrid(Euv, β, rtol, false, :ph)
+
     # Momentum grid maxima for G, Π, and Σ
     maxKG = 4.3 * maxK
     maxKP = 2.1 * maxK
@@ -314,6 +317,7 @@ function Σ_LQSGW(
                 W0 = file["W_$(max_step)"]
                 Σ_prev = Σ_mix = file["Σ_$(max_step)"]
                 Σ_ins_prev = Σ_ins_mix = file["Σ_ins_$(max_step)"]
+                println("Found converged data with max_step=$(max_step) for loadname $(loadname)!")
             end
         else
             E_qp_0 = Z_0 = G0 = Π0 = W0 = Σ_prev = Σ_ins_prev = Σ_mix = Σ_ins_mix = nothing
@@ -361,7 +365,6 @@ function Σ_LQSGW(
         zfactor_prev = 1.0
         Z_0 = zfactor_prev * ones(length(E_qp_0))
         # Use exactly computed Π0 as starting point
-        bdlr = DLRGrid(Euv, β, rtol, false, :ph)
         Π0 = GreenFunc.MeshArray(ImFreq(bdlr), qPgrid; dtype=ComplexF64)
         for (qi, q) in enumerate(qPgrid)
             Π0[:, qi] = Polarization.Polarization0_FiniteTemp(
