@@ -60,14 +60,21 @@ function main()
     constant_fs = true
     #constant_fs = false
 
+    # Use data at previous rs as initial guess for next rs or not?
+    use_prev_rs = true
+
+    calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
+    rslist = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+    alphalist = [0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1]
+
     #calculate = Dict("rpa" => false, "fp" => true, "fp_fm" => false)
     #rslist = [6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
     #alphalist = [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1]
 
-    # TODO: implement alpha scan at fixed rs
-    calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
-    rslist = [10.0]
-    alphalist = [0.1] 
+    # # NOTE: this data point takes forever to converge. why?
+    # calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
+    # rslist = [10.0]
+    # alphalist = [0.1]
 
     # # NOTE: α=0.2 converges up to rs=9.5 for RPA
     # calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
@@ -108,7 +115,18 @@ function main()
     @assert int_type_fp_fm ∈ [:ko_const_pm, :ko_takada, :ko_simion_giuliani]
 
     # Helper function to calculate LQSGW quasiparticle properties
-    function run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type=:rpa, Fs=-0.0, Fa=-0.0)
+    function run_lqsgw(
+        param,
+        Euv,
+        rtol,
+        maxK,
+        minK,
+        alpha,
+        int_type=:rpa,
+        Fs=-0.0,
+        Fa=-0.0;
+        loadname=nothing,
+    )
         return get_lqsgw_properties(
             param;
             Euv=Euv,
@@ -126,14 +144,24 @@ function main()
             Fa=int_type == :ko_const_pm ? Fa : -0.0,
             verbose=verbose,
             save=save,
+            loadname=nothing,
         )
+    end
+
+    function get_loadname(i, int_type)
+        if i == 1 || !use_prev_rs
+            return nothing
+        else
+            prev_rs = rslist[i - 1]
+            return "lqsgw_$(dim)d_$(int_type)_rs=$(round(prev_rs; sigdigits=4))_beta=$(beta).jld2"
+        end
     end
 
     # Calculate LQSGW effective mass ratios
     datadict_rpa = Dict()
     datadict_fp = Dict()
     datadict_fp_fm = Dict()
-    for (rs, alpha) in zip(rslist, alphalist)
+    for (i, (rs, alpha)) in enumerate(zip(rslist, alphalist))
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF = param
         # DLR parameters
@@ -151,14 +179,42 @@ function main()
         data_fp = []
         data_fp_fm = []
         if calculate["rpa"]
-            data_rpa = run_lqsgw(param, Euv, rtol, maxK, minK, alpha)
+            data_rpa = run_lqsgw(
+                param,
+                Euv,
+                rtol,
+                maxK,
+                minK,
+                alpha;
+                loadname=get_loadname(i, :rpa),
+            )
         end
         if calculate["fp"]
-            data_fp = run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp, Fs)
+            data_fp = run_lqsgw(
+                param,
+                Euv,
+                rtol,
+                maxK,
+                minK,
+                alpha,
+                int_type_fp,
+                Fs;
+                loadname=get_loadname(i, int_type_fp),
+            )
         end
         if calculate["fp_fm"]
-            data_fp_fm =
-                run_lqsgw(param, Euv, rtol, maxK, minK, alpha, int_type_fp_fm, Fs, Fa)
+            data_fp_fm = run_lqsgw(
+                param,
+                Euv,
+                rtol,
+                maxK,
+                minK,
+                alpha,
+                int_type_fp_fm,
+                Fs,
+                Fa;
+                loadname=get_loadname(i, int_type_fp_fm),
+            )
         end
         # Save data for this rs to dictionaries
         _rs = round(rs; sigdigits=13)
