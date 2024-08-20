@@ -307,7 +307,7 @@ function Σ_LQSGW(
                 if max_step < 0
                     error("No data found in $(savedir)!")
                 end
-                E_qp_0 = file["E_k_$(maxz_step)"]
+                E_qp_0 = file["E_k_$(max_step)"]
                 Z_0 = file["Z_k_$(max_step)"]
                 G0 = file["G_$(max_step)"]
                 Π0 = file["Π_$(max_step)"]
