@@ -3,6 +3,7 @@ Calculate the linearized quasiparticle self-consistent GW (LQSGW) self-energy in
 """
 module LQSGW
 
+using CodecZlib
 using CompositeGrids
 using ElectronGas
 using GreenFunc
@@ -43,6 +44,15 @@ include("selfenergy.jl")
 export GW, Σ_LQSGW
 
 # export ...
+
+"""
+    function round8(float::Float64)
+
+Round a floating point number to 8 significant digits (precision ~√eps).
+"""
+function round8(float::Float64)
+    return round(float; sigdigits=8)
+end
 
 """
     function uniqueperm(a)

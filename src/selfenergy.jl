@@ -261,13 +261,30 @@ function Σ_LQSGW(
         0.01 * minK,
         round(Int, multiplier * order),
     )
+    xGgrid = CompositeGrid.LogDensedGrid(
+        :cheb,
+        [0.0, round8(maxKG / kF)],
+        [0.0, 1.0],
+        round(Int, multiplier * Nk),
+        0.01 * round8(minK / kF),
+        round(Int, multiplier * order),
+    )
 
     # Medium grid for Π
     qPgrid =
         CompositeGrid.LogDensedGrid(:cheb, [0.0, maxKP], [0.0, 2 * kF], Nk, minK, order)
+    yPgrid = CompositeGrid.LogDensedGrid(
+        :cheb,
+        [0.0, round8(maxKP / kF)],
+        [0.0, 2.0],
+        Nk,
+        round8(minK / kF),
+        order,
+    )
 
     # Small grid for Σ
     kSgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, maxKS], [0.0, kF], Nk, minK, order)
+    xSgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, round8(maxKS / kF)], [0.0, 1.0], Nk, round8(minK / kF), order)
 
     # Helper function to get the GW self-energy Σ[G, W](iωₙ, k) for a given int_type (W)
     # NOTE: A large momentum grid is required for G and Σ at intermediate steps
@@ -317,7 +334,9 @@ function Σ_LQSGW(
                 W0 = file["W_$(max_step)"]
                 Σ_prev = Σ_mix = file["Σ_$(max_step)"]
                 Σ_ins_prev = Σ_ins_mix = file["Σ_ins_$(max_step)"]
-                println("Found converged data with max_step=$(max_step) for loadname $(loadname)!")
+                println(
+                    "Found converged data with max_step=$(max_step) for loadname $(loadname)!",
+                )
             end
         else
             E_qp_0 = Z_0 = G0 = Π0 = W0 = Σ_prev = Σ_ins_prev = Σ_mix = Σ_ins_mix = nothing
@@ -334,9 +353,7 @@ function Σ_LQSGW(
         Σ_ins_mix = MPI.bcast(Σ_ins_mix, root, comm)
     else
         # Get UEG G0; a large kgrid is required for the self-consistency loop
-        G0 = G_0(param, Euv, rtol, kGgrid; symmetry=:sym)
-        # G0 = G_0(param, Euv, rtol, kGgrid; symmetry=:none)  # same as SelfEnergy.G0Wrapped
-        # G0 = SelfEnergy.G0wrapped(Euv, rtol, kGgrid, param)
+        G0 = G_0(param, Euv, rtol, xGgrid; symmetry=:sym)
 
         # Verify that the non-interacting density is correct
         G0_dlr = to_dlr(G0)
@@ -386,7 +403,7 @@ function Σ_LQSGW(
     # Write initial (G0W0) self-energy to JLD2 file, overwriting
     # if it already exists (G0 -> Π0 -> W0 -> Σ1 = Σ_G0W0)
     if save && rank == root
-        jldopen(joinpath(savedir, savename), "w") do file
+        jldopen(joinpath(savedir, savename), "w"; compress=true) do file
             # Get W0 = W_qp[Π0] for plotting purposes only
             W0 = W_qp(param, Π0; int_type=_int_type, Fs=Fs, Fa=Fa)
             file["param"] = string(param)
@@ -436,7 +453,7 @@ function Σ_LQSGW(
             if all([dmeff, dzfactor, ddeltamu] .< atol)
                 if rank == root
                     println("\nConverged to atol = $atol after $i_step steps!")
-                    jldopen(joinpath(savedir, savename), "a") do file
+                    jldopen(joinpath(savedir, savename), "a"; compress=true) do file
                         file["converged"] = true
                     end
                 end
@@ -480,14 +497,9 @@ function Σ_LQSGW(
         Σ_mix = lerp(Σ_prev, Σ_curr, alpha)
         Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, alpha)
 
-        # # TODO: Benchmark variable alpha
-        # _alpha = i_step == 0 ? alpha_first_step : alpha
-        # Σ_mix = lerp(Σ_prev, Σ_curr, _alpha)
-        # Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, _alpha)
-
         # Append data at this step to JLD2 file (G -> Π -> W -> Σ)
         if save && rank == root
-            jldopen(joinpath(savedir, savename), "a") do file
+            jldopen(joinpath(savedir, savename), "a"; compress=true) do file
                 # Get W = W_qp[Π] for plotting purposes only
                 W = W_qp(param, Π; int_type=_int_type, Fs=Fs, Fa=Fa)
                 file["E_k_$(i_step + 1)"] = E_qp_kSgrid
@@ -516,7 +528,7 @@ function Σ_LQSGW(
         println(
             "\nWARNING: Convergence to atol = $atol not reached after $max_steps steps!",
         )
-        jldopen(joinpath(savedir, savename), "a") do file
+        jldopen(joinpath(savedir, savename), "a"; compress=true) do file
             file["converged"] = false
         end
     end
