@@ -46,16 +46,16 @@ const reflabels = ["\$^*\$", "\$^\\dagger\$", "\$^\\ddagger\$"]
 # Data for a single LQSGW iteration
 struct LQSGWIteration
     step::Int
+    dmu::Float64
+    meff::Float64
+    zfactor::Float64
+    E_k::Vector{Float64}
+    Z_k::Vector{Float64}
     G::GreenFunc.MeshArray
     Π::GreenFunc.MeshArray
     W::GreenFunc.MeshArray
     Σ::GreenFunc.MeshArray
     Σ_ins::GreenFunc.MeshArray
-    E_k::Vector{Float64}
-    Z_k::Vector{Float64}
-    dmu::Float64
-    meff::Float64
-    zfactor::Float64
 end
 
 """
@@ -210,18 +210,19 @@ function load_oneshot_data(
     δμ_G0W0 = chemicalpotential(param, Σ_G0W0, Σ_G0W0_ins)
     meff_G0W0 = massratio(param, Σ_G0W0, Σ_G0W0_ins, δK)[1]
     zfactor_G0W0 = zfactor_fermi(param, Σ_G0W0)
+    # NOTE: In the one-shot approach, we cite spectral properties *after* the first iteration, i.e., (m*/m)_{G0W0} instead of (m*/m)₀ = 1, etc., hence this is really a mixture of two LQSGW steps.
     return LQSGWIteration(
         1,
+        δμ_G0W0,
+        meff_G0W0,
+        zfactor_G0W0,
+        E_k_G0W0,
+        Z_k_G0W0,
         G0,
         Π0,
         W0,
         Σ_G0W0,
         Σ_G0W0_ins,
-        E_k_G0W0,
-        Z_k_G0W0,
-        δμ_G0W0,
-        meff_G0W0,
-        zfactor_G0W0,
     )
 end
 
@@ -247,16 +248,16 @@ function load_lqsgw_data(
     zfactor_LQSGW = zfactor_fermi(param, Σ_LQSGW)
     return LQSGWIteration(
         num_steps,
+        δμ_LQSGW,
+        meff_LQSGW,
+        zfactor_LQSGW,
+        E_k_LQSGW,
+        Z_k_LQSGW,
         G_LQSGW,
         Π_LQSGW,
         W_LQSGW,
         Σ_LQSGW,
         Σ_LQSGW_ins,
-        E_k_LQSGW,
-        Z_k_LQSGW,
-        δμ_LQSGW,
-        meff_LQSGW,
-        zfactor_LQSGW,
     )
 end
 

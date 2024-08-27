@@ -1,3 +1,150 @@
+# Holds data for a single LQSGW iteration,
+# (δμ, m*/m, Z, E) -> G -> Π -> W -> (Σ, Σ_ins)
+struct LQSGWIteration
+    step::Int
+    dmu::Float64
+    meff::Float64
+    zfactor::Float64
+    E_k::Vector{Float64}
+    Z_k::Vector{Float64}
+    G::GreenFunc.MeshArray
+    Π::GreenFunc.MeshArray
+    W::GreenFunc.MeshArray
+    Σ::GreenFunc.MeshArray
+    Σ_ins::GreenFunc.MeshArray
+end
+
+# Construct an LQSGW step from existing data
+function LQSGWIteration(lqsgw_iteration::LQSGWIteration, step=lqsgw_iteration.step)
+    return LQSGWIteration(
+        step,
+        lqsgw_iteration.dmu,
+        lqsgw_iteration.meff,
+        lqsgw_iteration.zfactor,
+        lqsgw_iteration.E_k,
+        lqsgw_iteration.Z_k,
+        lqsgw_iteration.G,
+        lqsgw_iteration.Π,
+        lqsgw_iteration.W,
+        lqsgw_iteration.Σ,
+        lqsgw_iteration.Σ_ins,
+    )
+end
+
+function initialize_g0w0_starting_point(
+    param::Parameter.Para,
+    bdlr,
+    fdlr,
+    xGgrid,
+    yPgrid,
+    maxXS,
+    maxXP,
+    maxXG;
+    verbose=false,
+)
+    @unpack me, β, kF, n, beta = param
+
+    # Get UEG G0; a large kgrid is required for the self-consistency loop
+    G0 = G_0(param, fdlr, xGgrid)
+
+    # Verify that the non-interacting density is correct
+    G0_ins = matfreq2tau(fdlr, G0.data, [β]) * (-1)
+    integrand = real(G0_ins[1, :]) .* xGgrid.grid .* xGgrid.grid
+    densityS = 3 * n * CompositeGrids.Interp.integrate1D(integrand, xGgrid, [0, maxXS])
+    densityP = 3 * n * CompositeGrids.Interp.integrate1D(integrand, xGgrid, [0, maxXP])
+    densityG = 3 * n * CompositeGrids.Interp.integrate1D(integrand, xGgrid, [0, maxXG])
+    if verbose
+        println("Density from Σ mesh (β = $beta): $(densityS)")
+        println("Density from Π mesh (β = $beta): $(densityP)")
+        println("Density from G mesh (β = $beta): $(densityG)")
+        println("Exact non-interacting density (T = 0): $(n)")
+        if beta == 1000.0
+            # The large discrepancy in density is due to finite-T effects
+            # @assert isapprox(n, densityG, rtol=3e-5)  # :gauss
+            @assert isapprox(n, densityG, rtol=3e-3)  # :cheb
+        end
+        println("G0(k0, 0⁻) = $(G0_ins[1, 1])\n")
+    end
+
+    # Initial quasiparticle properties
+    E_qp_0 = bare_energy(param, xSgrid)
+    δμ_0 = 0.0
+    meff_0 = 1.0
+    zfactor_0 = 1.0
+    Z_0 = zfactor_0 * ones(length(E_qp_0))
+
+    # Use exactly computed Π0 as starting point
+    Π0 = GreenFunc.MeshArray(bdlr.n, yPgrid; dtype=ComplexF64)
+    for (xi, x) in enumerate(yPgrid)
+        Π0[:, xi] = Polarization.Polarization0_FiniteTemp(
+            x * kF,
+            bdlr.n,
+            param;
+            maxk=maxXP * kF,
+            scaleN=50,
+            gaussN=25,
+        )
+    end
+    W0 = W_qp(param, Π0; int_type=_int_type, Fs=Fs, Fa=Fa)
+
+    # Use exact Π0 for initial G0W0 self-energy: Σ[G0, Π0](k, τ)
+    Σ_0, Σ_ins_0 = Σ_GW(G0, Π0)
+
+    # Return G0W0 LQSGW starting point
+    i_step = 0
+    return LQSGWIteration(
+        i_step,
+        δμ_0,
+        meff_0,
+        zfactor_0,
+        E_qp_0,
+        Z_0,
+        G0,
+        Π0,
+        W0,
+        Σ_0,
+        Σ_ins_0,
+    )
+end
+
+function load_lqsgw_starting_point(loaddir, loadname)
+    MPI.Initialized() == false && MPI.Init()
+    comm = MPI.COMM_WORLD
+    root = 0
+    rank = MPI.Comm_rank(comm)
+    if rank == root
+        # Load starting point from JLD2 file
+        jldopen(joinpath(loaddir, loadname), "r") do file
+            # Ensure that the load data was convergent
+            @assert file["converged"] == true "Specificed starting point data did not converge!"
+            # Find the converged data in JLD2 file
+            max_step = -1
+            for i in 0:MAXIMUM_STEPS
+                if haskey(file, i)
+                    max_step = i
+                else
+                    break
+                end
+            end
+            if max_step < 0
+                error("No data found in $(savedir)!")
+            end
+            loaddata = file[max_step]
+            loadparam = Parameter.from_string(file["param"])
+            @assert loaddata.step == max_step "Data step mismatch!"
+            println(
+                "Found converged data with max_step=$(max_step) for loadname $(loadname)!",
+            )
+        end
+    else
+        loaddata = loadparam = nothing
+    end
+    # Broadcast starting point data and param to all processes
+    loaddata = MPI.bcast(loaddata, root, comm)
+    loadparam = MPI.bcast(loadparam, root, comm)
+    # Build the starting point from (rescaled) existing converged LQSGW data
+    return LQSGWIteration(loaddata, 0), loadparam
+end
 
 function GW(
     param::Parameter.Para,
@@ -84,7 +231,6 @@ function GW(
     else
         error("No support for GW in $dim dimension!")
     end
-
     return Σ, Σ_ins, kernel
 end
 
@@ -240,19 +386,33 @@ function Σ_LQSGW(
         _int_type = int_type
     end
 
-    # Bosonic DLR grid
+    # DLR grids
     bdlr = DLRGrid(Euv, β, rtol, false, :ph)
+    fdlr = DLRGrid(Euv, β, rtol, true, :sym)
 
     # Momentum grid maxima for G, Π, and Σ
     maxKG = 4.3 * maxK
     maxKP = 2.1 * maxK
     maxKS = maxK
-    minKS = minK
+
+    # Dimensionless momentum grid maxima for G, Π, and Σ
+    maxXG = round8(maxKG / kF)
+    maxXP = round8(maxKP / kF)
+    maxXS = round8(maxKS / kF)
+    minX = round8(minK / kF)
 
     # Big grid for G
     multiplier = 1
     # multiplier = 2
     # multiplier = 4
+    xGgrid = CompositeGrid.LogDensedGrid(
+        :cheb,
+        [0.0, maxXG],
+        [0.0, 1.0],
+        round(Int, multiplier * Nk),
+        0.01 * minX,
+        round(Int, multiplier * order),
+    )
     kGgrid = CompositeGrid.LogDensedGrid(
         :cheb,
         [0.0, maxKG],
@@ -261,276 +421,206 @@ function Σ_LQSGW(
         0.01 * minK,
         round(Int, multiplier * order),
     )
-    xGgrid = CompositeGrid.LogDensedGrid(
-        :cheb,
-        [0.0, round8(maxKG / kF)],
-        [0.0, 1.0],
-        round(Int, multiplier * Nk),
-        0.01 * round8(minK / kF),
-        round(Int, multiplier * order),
-    )
 
     # Medium grid for Π
+    yPgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, maxXP], [0.0, 2.0], Nk, minX, order)
     qPgrid =
         CompositeGrid.LogDensedGrid(:cheb, [0.0, maxKP], [0.0, 2 * kF], Nk, minK, order)
-    yPgrid = CompositeGrid.LogDensedGrid(
-        :cheb,
-        [0.0, round8(maxKP / kF)],
-        [0.0, 2.0],
-        Nk,
-        round8(minK / kF),
-        order,
-    )
 
     # Small grid for Σ
+    xSgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, maxXS], [0.0, 1.0], Nk, minX, order)
     kSgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, maxKS], [0.0, kF], Nk, minK, order)
-    xSgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, round8(maxKS / kF)], [0.0, 1.0], Nk, round8(minK / kF), order)
 
     # Helper function to get the GW self-energy Σ[G, W](iωₙ, k) for a given int_type (W)
     # NOTE: A large momentum grid is required for G and Σ at intermediate steps
     function Σ_GW(G, Π)
+        # Get Σ_dyn(τ, k) and Σ_ins(k)
         Σ_imtime, Σ_ins, _ = GW(
             param,
             G,
             Π,
-            kSgrid;
+            xSgrid;
             Euv=Euv,
             rtol=rtol,
             # Nk=Nk,
-            maxK=maxKS,
-            minK=minKS,
+            maxX=maxXS,
+            minX=minX,
             # order=order,
             int_type=_int_type,
             Fs=Fs,
             Fa=Fa,
         )
-        Σ = to_imfreq(to_dlr(Σ_imtime))  # Σ(τ, k) → Σ(iωₙ, k)
+        # Σ_dyn(τ, k) → Σ_dyn(iωₙ, k)
+        Σ_data = Lehmann.tau2matfreq(fdlr, Σ_imtime.data)
+        Σ = GreenFunc.MeshArray(fdlr.n, xSgrid; dtype=ComplexF64, data=Σ_data)
         return Σ, Σ_ins
     end
 
-    local E_qp_0, Z_0, G0, Π0, W0, Σ_prev, Σ_ins_prev, Σ_mix, Σ_ins_mix
-    if isnothing(loaddir) == false && isnothing(loadname) == false
-        if rank == root
-            # Load starting point from JLD2 file
-            jldopen(joinpath(loaddir, loadname), "r") do file
-                # Ensure that the load data was convergent
-                @assert file["converged"] == true "Specificed starting point data did not converge!"
-                # Find the converged data in JLD2 file
-                max_step = -1
-                for j in 0:MAXIMUM_STEPS
-                    if haskey(file, "E_k_$(j)")
-                        max_step = j
-                    else
-                        break
-                    end
-                end
-                if max_step < 0
-                    error("No data found in $(savedir)!")
-                end
-                E_qp_0 = file["E_k_$(max_step)"]
-                Z_0 = file["Z_k_$(max_step)"]
-                G0 = file["G_$(max_step)"]
-                Π0 = file["Π_$(max_step)"]
-                W0 = file["W_$(max_step)"]
-                Σ_prev = Σ_mix = file["Σ_$(max_step)"]
-                Σ_ins_prev = Σ_ins_mix = file["Σ_ins_$(max_step)"]
-                println(
-                    "Found converged data with max_step=$(max_step) for loadname $(loadname)!",
-                )
-            end
+    # Helper function to get the starting point for the LQSGW loop
+    function get_starting_point()
+        if isnothing(loaddir) == false && isnothing(loadname) == false
+            loaddata, loadparam = load_lqsgw_starting_point(loaddir, loadname)
         else
-            E_qp_0 = Z_0 = G0 = Π0 = W0 = Σ_prev = Σ_ins_prev = Σ_mix = Σ_ins_mix = nothing
-        end
-        # Broadcast starting point data to all processes
-        E_qp_0 = MPI.bcast(E_qp_0, root, comm)
-        Z_0 = MPI.bcast(Z_0, root, comm)
-        G0 = MPI.bcast(G0, root, comm)
-        Π0 = MPI.bcast(Π0, root, comm)
-        W0 = MPI.bcast(W0, root, comm)
-        Σ_prev = MPI.bcast(Σ_prev, root, comm)
-        Σ_ins_prev = MPI.bcast(Σ_ins_prev, root, comm)
-        Σ_mix = MPI.bcast(Σ_mix, root, comm)
-        Σ_ins_mix = MPI.bcast(Σ_ins_mix, root, comm)
-    else
-        # Get UEG G0; a large kgrid is required for the self-consistency loop
-        G0 = G_0(param, Euv, rtol, xGgrid; symmetry=:sym)
-
-        # Verify that the non-interacting density is correct
-        G0_dlr = to_dlr(G0)
-        G0_ins = dlr_to_imtime(G0_dlr, [β]) * (-1)
-        integrand = real(G0_ins[1, :]) .* kGgrid.grid .* kGgrid.grid
-        densityS = CompositeGrids.Interp.integrate1D(integrand, kGgrid, [0, maxKS]) / π^2
-        densityP = CompositeGrids.Interp.integrate1D(integrand, kGgrid, [0, maxKP]) / π^2
-        densityG = CompositeGrids.Interp.integrate1D(integrand, kGgrid, [0, maxKG]) / π^2
-        if rank == root
-            println("Density from Σ mesh (β = $beta): $(densityS)")
-            println("Density from Π mesh (β = $beta): $(densityP)")
-            println("Density from G mesh (β = $beta): $(densityG)")
-            println("Exact non-interacting density (T = 0): $(param.n)")
-            if beta == 1000.0
-                # The large discrepancy in density is due to finite-T effects
-                # @assert isapprox(param.n, densityG, rtol=3e-5)  # :gauss
-                @assert isapprox(param.n, densityG, rtol=3e-3)  # :cheb
-            end
-            println("G0(k0, 0⁻) = $(G0_ins[1, 1])\n")
-        end
-
-        # Initial quasiparticle properties
-        E_qp_0 = bare_energy(param, kSgrid)
-        δμ_prev = 0.0
-        meff_prev = 1.0
-        zfactor_prev = 1.0
-        Z_0 = zfactor_prev * ones(length(E_qp_0))
-        # Use exactly computed Π0 as starting point
-        Π0 = GreenFunc.MeshArray(ImFreq(bdlr), qPgrid; dtype=ComplexF64)
-        for (qi, q) in enumerate(qPgrid)
-            Π0[:, qi] = Polarization.Polarization0_FiniteTemp(
-                q,
-                bdlr.n,
-                param;
-                maxk=maxKP / kF,
-                scaleN=50,
-                gaussN=25,
+            loaddata = initialize_g0w0_starting_point(
+                param,
+                bdlr,
+                fdlr,
+                xGgrid,
+                yPgrid,
+                maxXS,
+                maxXP,
+                maxXG;
+                verbose=rank == root,
             )
+            loadparam = param
         end
-        # Use exact Π0 for initial G0W0 self-energy: Σ[G0, Π0](k, τ)
-        Σ, Σ_ins = Σ_GW(G0, Π0)
-        # Use G0W0 self-energy as starting point
-        Σ_prev = Σ_mix = Σ
-        Σ_ins_prev = Σ_ins_mix = Σ_ins
+        return loaddata, loadparam
     end
 
-    # Write initial (G0W0) self-energy to JLD2 file, overwriting
-    # if it already exists (G0 -> Π0 -> W0 -> Σ1 = Σ_G0W0)
-    if save && rank == root
-        jldopen(joinpath(savedir, savename), "w"; compress=true) do file
-            # Get W0 = W_qp[Π0] for plotting purposes only
-            W0 = W_qp(param, Π0; int_type=_int_type, Fs=Fs, Fa=Fa)
-            file["param"] = string(param)
-            file["E_k_0"] = E_qp_0
-            file["Z_k_0"] = Z_0
-            file["G_0"] = G0
-            file["Π_0"] = Π0
-            file["W_0"] = W0
-            file["Σ_0"] = Σ_prev
-            file["Σ_ins_0"] = Σ_ins_prev
+    # Helper function to rescale the starting point for Σ to the current rs value
+    function rescale_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr, kGgrid)
+        # Rescale starting point for Σ if it was calculated at a different value for rs
+        if param.rs != loadparam.rs
+            #   Σ ~ NF ~ 1 / rs, to leading order
+            #   Σ_ins ~ NF ~ 1 / rs, to leading order
+            wnmesh = GreenFunc.ImFreq(fdlr)
+            Σ_data = loaddata.Σ.data * (loadparam.rs / param.rs)
+            Σ_ins_data = loaddata.Σ_ins.data * (loadparam.rs / param.rs)
+            Σ_rescaled = GreenFunc.MeshArray(wnmesh, kGgrid; dtype=ComplexF64, data=Σ_data)
+            Σ_ins_rescaled =
+                GreenFunc.MeshArray(wnmesh, kGgrid; dtype=ComplexF64, data=Σ_ins_data)
+            # Reconstruct the starting point using the rescaled self-energy
+            loaddata = reconstruct(loaddata; Σ=Σ_rescaled, Σ_ins=Σ_ins_rescaled)
+        end
+        return loaddata
+    end
+
+    # Helper function to write data to JLD2 file
+    function write_to_file(key, val; write_mode="a", compress=true)
+        if save && rank == root
+            jldopen(joinpath(savedir, savename), write_mode; compress=compress) do file
+                file[key] = val
+            end
         end
     end
 
-    # Self-consistency loop
-    if rank == root
-        println("\nBegin self-consistency loop...\n")
-    end
-    i_step = 0
-    converged = false
-    # alpha_first_step = 0.01
-    while i_step < max_steps
-        # Get quasiparticle properties
-        δμ = chemicalpotential(param, Σ_prev, Σ_ins_prev)
-        meff = massratio(param, Σ_prev, Σ_ins_prev, δK)[1]
-        zfactor = zfactor_fermi(param, Σ_prev)
-        if verbose && rank == root
-            print("""\n
-            Step $(i_step + 1):
+    # Helper function to test for convergence of quasiparticle properties.
+    # We define the LQSGW self-consistency as the maximum absolute difference
+    # between the current and previous step's quasiparticle properties.
+    function test_convergence(prev_step, num_steps, meff, zfactor, dmu)
+        if verbose
+            print_root("""\n
+            Step $(num_steps):
             • m*/m        = \t$(meff)
             • Z           = \t$(zfactor)
-            • δμ          = \t$(δμ)
+            • δμ          = \t$(dmu)
             """)
         end
-
-        # Test for convergence of quasiparticle properties
-        if i_step > 0
-            dmeff = abs(meff - meff_prev)
-            dzfactor = abs(zfactor - zfactor_prev)
-            ddeltamu = abs(δμ - δμ_prev)
-            if verbose && rank == root
-                print("""
+        if num_steps > 0
+            dmeff = abs(meff - prev_step.meff)
+            dzfactor = abs(zfactor - prev_step.zfactor)
+            ddeltamu = abs(dmu - prev_step.dmu)
+            if verbose
+                print_root("""
                 • |Δ(m* / m)| = \t$(dmeff)
                 • |Δ(Z)|      = \t$(dzfactor)
                 • |Δ(δμ)|     = \t$(ddeltamu)
                 """)
             end
-            if all([dmeff, dzfactor, ddeltamu] .< atol)
-                if rank == root
-                    println("\nConverged to atol = $atol after $i_step steps!")
-                    jldopen(joinpath(savedir, savename), "a"; compress=true) do file
-                        file["converged"] = true
-                    end
-                end
-                converged = true
-                break
-            end
+            return all([dmeff, dzfactor, ddeltamu] .≤ atol)
+        end
+        return false
+    end
+
+    # Load or initialize the starting point (step 0)
+    prev_step, prev_param = get_starting_point()
+    prev_step = rescale_starting_point(param, prev_step, prev_param, fdlr, kGgrid)
+
+    # Write starting point to JLD2 file, overwriting any existing data
+    write_to_file("param", string(param); write_mode="w")
+    write_to_file(0, prev_step)
+
+    # Self-consistency loop
+    println_root("\nBegin self-consistency loop...\n")
+    num_steps = 0
+    converged = false
+    while num_steps < max_steps
+        i_curr = prev_step.step + 1
+        Σ_prev = prev_step.Σ
+        Σ_ins_prev = prev_step.Σ_ins
+
+        # Get quasiparticle properties
+        dmu_curr = chemicalpotential(param, Σ_prev, Σ_ins_prev)
+        meff_curr = massratio(param, Σ_prev, Σ_ins_prev, δK)[1]
+        zfactor_curr = zfactor_fermi(param, Σ_prev)
+
+        # Test for convergence of quasiparticle properties
+        converged =
+            test_convergence(prev_step, num_steps, meff_curr, zfactor_curr, dmu_curr)
+        if converged
+            println_root("\nConverged to atol = $atol after $num_steps steps!")
+            write_to_file("converged", true)
+            break
         end
 
-        # Get the current Z-factor
-        Z_kSgrid = zfactor_full(param, Σ_prev)
+        # Momentum-resolved Z(k) and E_qp(k) calculated on the self-energy grid (xSgrid)
+        Z_curr = zfactor_full(param, Σ_prev)
+        E_qp_curr = quasiparticle_energy(param, Σ_prev, Σ_ins_prev)
 
-        # Get the current quasiparticle energy
-        E_qp_kSgrid = quasiparticle_energy(param, Σ_prev, Σ_ins_prev)
+        # Interpolated quasiparticle energy / G on the Green's function grid (xGgrid)
+        E_qp_xGgrid = E_qp_grid(param, Σ_prev, Σ_ins_prev, xGgrid)
+        G_curr = G_qp(param, Σ_prev, Σ_ins_prev, xGgrid)
 
-        # Get grid-interpolated quasiparticle energy for Π_qp solver
-        E_qp_kGgrid = E_qp_grid(param, Σ_prev, Σ_ins_prev, kGgrid)
-
-        # Get interpolated quasiparticle Green's function G_qp
-        G = G_qp(param, Σ_prev, Σ_ins_prev, kGgrid)
-
-        # Get Π = Π_qp[G]
-        Π = Π_qp(
+        # Compute the current self-energy using the GW approximation
+        Π_curr = Π_qp(
             param,
-            E_qp_kGgrid,
-            kGgrid,
+            E_qp_xGgrid,
+            xGgrid,
             Nk,
             maxKP,
             minK,
             order,
-            qPgrid,
+            yPgrid,
             bdlr;
             verbose=verbose,
             show_progress=show_progress,
         )
+        W_curr = W_qp(param, Π_curr; int_type=_int_type, Fs=Fs, Fa=Fa)
+        Σ_curr, Σ_ins_curr = Σ_GW(G_curr, Π_curr)  # NOTE: W[Π] is computed internally
 
-        # Get Σ_curr[G, Π](k, τ)
-        Σ_curr, Σ_ins_curr = Σ_GW(G, Π)
-
-        # Mix the new and old self energies via linear interpolation:
-        # Σ_mix = (1 - α) * Σ_prev + α * Σ    
+        # Linearly interpolate the new and old self energies: Σ_mix = (1 - α) * Σ_prev + α * Σ
         Σ_mix = lerp(Σ_prev, Σ_curr, alpha)
         Σ_ins_mix = lerp(Σ_ins_prev, Σ_ins_curr, alpha)
 
-        # Append data at this step to JLD2 file (G -> Π -> W -> Σ)
-        if save && rank == root
-            jldopen(joinpath(savedir, savename), "a"; compress=true) do file
-                # Get W = W_qp[Π] for plotting purposes only
-                W = W_qp(param, Π; int_type=_int_type, Fs=Fs, Fa=Fa)
-                file["E_k_$(i_step + 1)"] = E_qp_kSgrid
-                file["Z_k_$(i_step + 1)"] = Z_kSgrid
-                file["G_$(i_step + 1)"] = G
-                file["Π_$(i_step + 1)"] = Π
-                file["W_$(i_step + 1)"] = W
-                file["Σ_$(i_step + 1)"] = Σ_mix
-                file["Σ_ins_$(i_step + 1)"] = Σ_ins_mix
-            end
-        end
+        # Build the current LQSGW iteration
+        curr_step = LQSGWIteration(
+            i_curr,
+            dmu_curr,
+            meff_curr,
+            zfactor_curr,
+            E_qp_curr,
+            Z_curr,
+            G_curr,
+            Π_curr,
+            W_curr,
+            Σ_mix,
+            Σ_ins_mix,
+        )
 
-        # Prepare for next iteration
-        i_step += 1
-        Σ_prev = Σ_mix
-        Σ_ins_prev = Σ_ins
-        δμ_prev = δμ
-        meff_prev = meff
-        zfactor_prev = zfactor
+        # Append data at this step to JLD2 file and prepare for the next iteration
+        write_to_file(i_curr, curr_step)
+        num_steps += 1
+        prev_step = curr_step
 
         # Explicit garbage collection resolves MPI-related memory leak
         # TODO: Implement globally initialized (variable) MPI buffers.
         GC.gc()
     end
-    if i_step == max_steps && rank == root
-        println(
+    if num_steps == max_steps
+        println_root(
             "\nWARNING: Convergence to atol = $atol not reached after $max_steps steps!",
         )
-        jldopen(joinpath(savedir, savename), "a"; compress=true) do file
-            file["converged"] = false
-        end
+        write_to_file("converged", false)
     end
-    return Σ_mix, Σ_ins_mix, i_step, converged
+    return Σ_mix, Σ_ins_mix, num_steps, converged
 end

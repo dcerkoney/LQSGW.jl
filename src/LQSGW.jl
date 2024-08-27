@@ -73,6 +73,15 @@ function lerp(M_start, M_end, alpha)
     return (1 - alpha) * M_start + alpha * M_end
 end
 
+# """
+#     get_instantaneous(param::Parameter.Para, fdlr, imfreq_data)
+
+# Given imaginary-frequency data, use the DLR to obtain the corresponding instantaneous (τ = 0⁻) data.
+# """
+# function get_instantaneous(param::Parameter.Para, fdlr, imfreq_data)
+#     return matfreq2tau(fdlr, imfreq_data, [param.β]) * (-1)
+# end
+
 """
     split_count(N::Integer, n::Integer)
 

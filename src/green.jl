@@ -2,9 +2,10 @@
 Compute the noninteracting Green's function G⁰ₖ(iωₙ) on a given momentum grid.
 By default (`symmetry = :sym`), uses a DLR Matsubara grid that is symmetric around n = -1.
 """
-function G_0(param::Parameter.Para, Euv, rtol, xGgrid; symmetry=:sym)
+# Dimensionless version
+function G_0(param::Parameter.Para, fdlr, xGgrid)
     @unpack me, β, μ, kF = param
-    wnmesh = GreenFunc.ImFreq(β, FERMION; Euv=Euv, rtol=rtol, symmetry=symmetry)
+    wnmesh = GreenFunc.ImFreq(fdlr)
     green = GreenFunc.MeshArray(wnmesh.grid, xGgrid; dtype=ComplexF64)  # G_0(x, n)
     for ind in eachindex(green)
         iw, ik = ind[1], ind[2]
@@ -13,6 +14,17 @@ function G_0(param::Parameter.Para, Euv, rtol, xGgrid; symmetry=:sym)
     end
     return green
 end
+# # Dimensionful version
+# function G_0(param::Parameter.Para, fdlr, kGgrid)
+#     @unpack me, β, μ, kF = param
+#     wnmesh = GreenFunc.ImFreq(fdlr)
+#     green = GreenFunc.MeshArray(wnmesh, kGgrid; dtype=ComplexF64)
+#     for ind in eachindex(green)
+#         iw, ik = ind[1], ind[2]
+#         green[ind] = 1 / (im * wnmesh[iw] - (kGgrid^2 / (2 * me) - μ))
+#     end
+#     return green
+# end
 
 """
 Compute the quasiparticle Green's function Gₖ(iωₙ) given Σ grid data.
