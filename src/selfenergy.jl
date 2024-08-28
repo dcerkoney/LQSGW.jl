@@ -522,10 +522,10 @@ function Σ_LQSGW(
             kSgrid;
             Euv=Euv,
             rtol=rtol,
-            Nk=Nk,
+            # Nk=Nk,
             maxK=maxKS,
             minK=minK,
-            order=order,
+            # order=order,
             int_type=_int_type,
             Fs=Fs,
             Fa=Fa,
