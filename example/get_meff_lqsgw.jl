@@ -49,7 +49,7 @@ function main()
     # Nk, order = 14, 10
     Nk, order = 12, 8
     # Nk, order = 10, 7
-
+ 
     # LQSGW parameters
     max_steps = 500
     atol = 1e-5
@@ -58,14 +58,18 @@ function main()
     verbose = true
     save = true
     constant_fs = true
-    #constant_fs = false
 
     # Use data at previous rs as initial guess for next rs or not?
     use_prev_rs = true
 
-    calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
-    rslist = [0.01, 0.25, 0.5]
-    alphalist = [0.3, 0.3, 0.3]
+    # Testing previous rs mode
+    calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
+    rslist = [4.5, 5.0]
+    alphalist = [0.3, 0.3]
+
+    # calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
+    # rslist = [0.01, 0.25, 0.5]
+    # alphalist = [0.3, 0.3, 0.3]
 
     #calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
     #rslist = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
