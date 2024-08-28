@@ -86,7 +86,7 @@ function initialize_g0w0_starting_point(
             q,
             bdlr.n,
             param;
-            maxk=maxKP,
+            maxk=maxKP / kF,  # argument maxk is specified in units of kF
             scaleN=50,
             gaussN=25,
         )
