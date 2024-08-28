@@ -121,8 +121,8 @@ function load_lqsgw_starting_point(loaddir, loadname)
     if rank == root
         # Load starting point from JLD2 file
         loaddata, loadparam = jldopen(joinpath(loaddir, loadname), "r") do file
-            # # Ensure that the load data was convergent
-            # @assert file["converged"] == true "Specificed starting point data did not converge!"
+            # Ensure that the load data was convergent
+            @assert file["converged"] == true "Specificed starting point data did not converge!"
             # Find the converged data in JLD2 file
             max_step = -1
             for i in 0:MAXIMUM_STEPS

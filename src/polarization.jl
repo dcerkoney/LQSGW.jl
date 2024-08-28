@@ -377,8 +377,8 @@ function Π_qp_static(
 
     # A larger momentum grid for internal integrations is needed to accurately
     # compute the static polarization and adequately reduce the error near q=0.
-    Nk_integrate = 20
-    order_integrate = 15
+    Nk_integrate = 40
+    order_integrate = 30
     # multiplier = 4
     # Nk_integrate = round(Int, multiplier * Nk)
     # order_integrate = round(Int, multiplier * order)
@@ -505,8 +505,8 @@ function Π_qp_dynamic(
 
     # A larger momentum grid for internal integrations is needed to accurately
     # compute the static polarization and adequately reduce the error near q=0.
-    Nk_integrate = 20
-    order_integrate = 15
+    Nk_integrate = 40
+    order_integrate = 30
     # multiplier = 4
     # Nk_integrate = round(Int, multiplier * Nk)
     # order_integrate = round(Int, multiplier * order)
