@@ -241,7 +241,7 @@ function get_lqsgw_properties(
     show_progress=false,
     save=false,
     savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
+    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
     loaddir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
     loadname=nothing,
 )
