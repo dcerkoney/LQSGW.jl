@@ -51,7 +51,7 @@ function main()
     # Nk, order = 10, 7
  
     # LQSGW parameters
-    max_steps = 500
+    max_steps = 300
     atol = 1e-5
     #alpha = 0.2
     δK = 5e-6
@@ -64,10 +64,10 @@ function main()
 
     # Testing previous rs mode
     calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
-    rslist = [4.999, 5.0]
-    alphalist = [0.3, 0.3]
+    rslist = [0.99, 1.0]
+    # rslist = [4.999, 5.0]
     # rslist = [4.5, 5.0]
-    # alphalist = [0.3, 0.3]
+    alphalist = [0.3, 0.3]
 
     # calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
     # rslist = [0.01, 0.25, 0.5]

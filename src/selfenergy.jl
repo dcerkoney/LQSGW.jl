@@ -204,7 +204,7 @@ end
 # Helper function to relabel the starting point for Σ to match the current parameters 
 function relabel_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr, kSgrid)
     # Relabel starting point for Σ if it was calculated at a different value for rs
-    if param.rs != loadparam.rs 
+    #if param.rs != loadparam.rs 
         xgrid_old = loaddata.Σ.mesh[2] / loadparam.kF
         xgrid_new = kSgrid / param.kF
         @assert isapprox(xgrid_old, xgrid_new, rtol=1e-7) "Mismatch in dimensionless kgrids for new/old Σ data!"
@@ -218,7 +218,7 @@ function relabel_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr
         )
         # Reconstruct the starting point using the current parameters
         loaddata = reconstruct(loaddata; Σ=Σ_relabeled, Σ_ins=Σ_ins_relabeled)
-    end
+    #end
     return loaddata
 end
 
