@@ -202,14 +202,17 @@ function get_starting_point(
 end
 
 # Helper function to relabel the starting point for Σ to match the current parameters 
-function relabel_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr, kGgrid)
+function relabel_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr, kSgrid)
     # Relabel starting point for Σ if it was calculated at a different value for rs
     if param.rs != loadparam.rs 
+        xgrid_old = loaddata.Σ.mesh[2] / loadparam.kF
+        xgrid_new = kSgrid / param.kF
+        @assert isapprox(xgrid_old, xgrid_new, rtol=1e-7) "Mismatch in dimensionless kgrids for new/old Σ data!"
         Σ_relabeled =
-            GreenFunc.MeshArray(ImFreq(fdlr), kGgrid; dtype=ComplexF64, data=loaddata.Σ.data)
+            GreenFunc.MeshArray(ImFreq(fdlr), kSgrid; dtype=ComplexF64, data=loaddata.Σ.data)
         Σ_ins_relabeled = GreenFunc.MeshArray(
             ImTime(fdlr; grid=[param.β]),
-            kGgrid;
+            kSgrid;
             dtype=ComplexF64,
             data=loaddata.Σ_ins.data,
         )
@@ -220,18 +223,21 @@ function relabel_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr
 end
 
 # Helper function to rescale the starting point for Σ to the current rs value
-function rescale_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr, kGgrid)
+function rescale_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr, kSgrid)
     # Rescale starting point for Σ if it was calculated at a different value for rs
     if param.rs != loadparam.rs
+        xgrid_old = loaddata.Σ.mesh[2] / loadparam.kF
+        xgrid_new = kSgrid / param.kF
+        @assert isapprox(xgrid_old, xgrid_new, rtol=1e-7) "Mismatch in dimensionless kgrids for new/old Σ data!"
         #   Σ ~ NF ~ 1 / rs, to leading order
         #   Σ_ins ~ NF ~ 1 / rs, to leading order
         Σ_data = loaddata.Σ.data * (loadparam.rs / param.rs)
         Σ_ins_data = loaddata.Σ_ins.data * (loadparam.rs / param.rs)
         Σ_rescaled =
-            GreenFunc.MeshArray(ImFreq(fdlr), kGgrid; dtype=ComplexF64, data=Σ_data)
+            GreenFunc.MeshArray(ImFreq(fdlr), kSgrid; dtype=ComplexF64, data=Σ_data)
         Σ_ins_rescaled = GreenFunc.MeshArray(
             ImTime(fdlr; grid=[param.β]),
-            kGgrid;
+            kSgrid;
             dtype=ComplexF64,
             data=Σ_ins_data,
         )
@@ -580,8 +586,8 @@ function Σ_LQSGW(
         loaddir=loaddir,
         loadname=loadname,
     )
-    prev_step = relabel_starting_point(param, prev_step, prev_param, fdlr, kGgrid)
-    #prev_step = rescale_starting_point(param, prev_step, prev_param, fdlr, kGgrid)
+    prev_step = relabel_starting_point(param, prev_step, prev_param, fdlr, kSgrid)
+    #prev_step = rescale_starting_point(param, prev_step, prev_param, fdlr, kSgrid)
     if verbose
         println_root("""
         Using $(starting_point_type) starting point with:
