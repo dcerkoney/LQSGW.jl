@@ -34,10 +34,12 @@ src/deprecated.jl
 sync_data*
 
 # Exclude working directories
+archive/
 data/
 example/convergence/
 example/test/
 figures/
+merged_data/
 references/
 scratch/
 submit/

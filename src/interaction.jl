@@ -2,7 +2,7 @@
 function DCKernel_qp(
     param::Parameter.Para,
     Π_qp::GreenFunc.MeshArray;
-    Euv=param.EF * 100,
+    Euv=1000 * param.EF,
     rtol=1e-10,
     Nk=8,
     maxK=param.kF * 10,
