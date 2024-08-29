@@ -64,8 +64,10 @@ function main()
 
     # Testing previous rs mode
     calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
-    rslist = [4.5, 5.0]
+    rslist = [4.95, 5.0]
     alphalist = [0.3, 0.3]
+    # rslist = [4.5, 5.0]
+    # alphalist = [0.3, 0.3]
 
     # calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
     # rslist = [0.01, 0.25, 0.5]

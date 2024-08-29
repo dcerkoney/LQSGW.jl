@@ -201,6 +201,24 @@ function get_starting_point(
     return loaddata, loadparam, starting_point_type
 end
 
+# Helper function to relabel the starting point for Σ to match the current parameters 
+function relabel_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr, kGgrid)
+    # Relabel starting point for Σ if it was calculated at a different value for rs
+    if param.rs != loadparam.rs 
+        Σ_relabeled =
+            GreenFunc.MeshArray(ImFreq(fdlr), kGgrid; dtype=ComplexF64, data=loaddata.Σ.data)
+        Σ_ins_relabeled = GreenFunc.MeshArray(
+            ImTime(fdlr; grid=[param.β]),
+            kGgrid;
+            dtype=ComplexF64,
+            data=loaddata.Σ_ins.data,
+        )
+        # Reconstruct the starting point using the current parameters
+        loaddata = reconstruct(loaddata; Σ=Σ_relabeled, Σ_ins=Σ_ins_relabeled)
+    end
+    return loaddata
+end
+
 # Helper function to rescale the starting point for Σ to the current rs value
 function rescale_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr, kGgrid)
     # Rescale starting point for Σ if it was calculated at a different value for rs
@@ -562,7 +580,8 @@ function Σ_LQSGW(
         loaddir=loaddir,
         loadname=loadname,
     )
-    prev_step = rescale_starting_point(param, prev_step, prev_param, fdlr, kGgrid)
+    prev_step = relabel_starting_point(param, prev_step, prev_param, fdlr, kGgrid)
+    #prev_step = rescale_starting_point(param, prev_step, prev_param, fdlr, kGgrid)
     if verbose
         println_root("""
         Using $(starting_point_type) starting point with:
