@@ -64,7 +64,7 @@ function main()
 
     # Testing previous rs mode
     calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
-    rslist = [4.95, 5.0]
+    rslist = [4.999, 5.0]
     alphalist = [0.3, 0.3]
     # rslist = [4.5, 5.0]
     # alphalist = [0.3, 0.3]
@@ -163,7 +163,7 @@ function main()
             return nothing
         else
             prev_rs = rslist[i - 1]
-            return "lqsgw_$(dim)d_$(int_type)_rs=$(round(prev_rs; sigdigits=4))_beta=$(beta).jld2"
+            return "lqsgw_$(dim)d_$(int_type)_rs=$(round(prev_rs; sigdigits=4))_beta=$(round(beta; sigdigits=4)).jld2"
         end
     end
 
