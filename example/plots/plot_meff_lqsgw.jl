@@ -8,7 +8,7 @@ using Parameters
 using PyCall
 using PyPlot
 
-@pyimport numpy as np   # for saving/loading numpy data
+@pyimport numpy as nstep   # for saving/loading numpy data
 @pyimport scienceplots  # for style "science"
 @pyimport scipy.interpolate as interp
 
@@ -69,7 +69,7 @@ function main()
     minK = 1e-6 * kF
 
     # Test LQSGW parameters
-    max_steps = 500
+    max_steps = 300
     int_type = :rpa
 
     # ElectronGas.jl defaults for G0W0 self-energy
@@ -112,10 +112,11 @@ function main()
     # Small grid for Σ
     kSgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, maxKS], [0.0, kF], Nk, minK, order)
 
-    function loaddata(
+    # Legacy data
+    function loaddata_old(
         key;
         savedir="$(LQSGW.DATA_DIR)/$(dim)d/$(int_type)",
-        savename="lqsgw_$(dim)d_$(int_type)_rs=$(round(rs; sigdigits=4))_beta=$(beta).jld2",
+        savename="lqsgw_$(dim)d_$(int_type)_rs=$(round(rs; sigdigits=4))_beta=$(round(beta; sigdigits=4)).jld2",
     )
         data = []
         n_max = -1
@@ -133,6 +134,38 @@ function main()
         return data, n_max
     end
 
+    # New data
+    function loaddata(;
+        savedir="$(LQSGW.DATA_DIR)/$(dim)d/$(int_type)",
+        savename="lqsgw_$(dim)d_$(int_type)_rs=$(round(rs; sigdigits=4))_beta=$(round(beta; sigdigits=4)).jld2",
+    )
+        n_max = -1
+        data = jldopen(joinpath(savedir, savename), "r") do file
+            # Ensure that the saved data was convergent
+            @assert file["converged"] == true "Specificed save data did not converge!"
+            # Find the converged data in JLD2 file
+            max_step = -1
+            for i in 0:MAXIMUM_STEPS
+                if haskey(file, string(i))
+                    max_step = i
+                else
+                    break
+                end
+            end
+            if max_step < 0
+                error("No data found in $(savedir)!")
+            end
+            _loaddata = file[string(max_step)]
+            # _loadparam = Parameter.from_string(file["param"])
+            @assert _loaddata.step == max_step "Data step mismatch!"
+            println(
+                "Found converged data with max_step=$(max_step) for loadname $(loadname)!",
+            )
+            return _loaddata
+        end
+        return data, n_max
+    end
+
     colors(n) = reverse(hex.((colormap("Reds", n; mid=0.8, logscale=true))))
     # colors(n) = reverse(hex.((sequential_palette(0, n; s=1))))
 
@@ -146,12 +179,23 @@ function main()
     ax5 = plt.subplot(nrows, ncols, 5)
     ax6 = plt.subplot(nrows, ncols, 6)
 
-    Σinsqp, nsi = loaddata("Σ_ins")
-    Σqp, ns = loaddata("Σ")
-    Eqp, ne = loaddata("E_k")
-    Zqp, nz = loaddata("Z_k")
-    Πqp, np = loaddata("Π")
-    Wqp, nw = loaddata("W")
+    # # Load the data using legacy format
+    # Σinsqp, nstep = loaddata("Σ_ins")
+    # Σqp, nstep = loaddata("Σ")
+    # Eqp, nstep = loaddata("E_k")
+    # Zqp, nstep = loaddata("Z_k")
+    # Πqp, nstep = loaddata("Π")
+    # Wqp, nstep = loaddata("W")
+
+    # Load the data using new format
+    lqsgw_data::LQSGWIteration = loaddata()
+    nstep = lqsgw_data.step
+    Σinsqp = lqsgw_data.Σ_ins
+    Σqp = lqsgw_data.Σ
+    Eqp = lqsgw_data.E_k
+    Zqp = lqsgw_data.Z_k
+    Πqp = lqsgw_data.Π
+    Wqp = lqsgw_data.W
 
     Σins0 = real(Σinsqp[1][1, :])
     Σins1 = real(Σinsqp[2][1, :])
@@ -181,7 +225,7 @@ function main()
 
     for (i, si) in enumerate(Σinsqp)
         i == 1 && continue
-        ax1.plot(kSgrid / kF, real(si[1, :]); color="#$(colors(nsi + 1)[i])")
+        ax1.plot(kSgrid / kF, real(si[1, :]); color="#$(colors(nstep + 1)[i])")
     end
     ax1.plot(kSgrid / kF, Σins0, "--"; color="k", lw=1.5, label="\$i=0\$")
     ax1.plot(kSgrid / kF, Σins1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
@@ -190,7 +234,7 @@ function main()
 
     for (i, s) in enumerate(Σqp)
         i == 1 && continue
-        ax2.plot(kSgrid / kF, real(s[1, :]); color="#$(colors(ns + 1)[i])")
+        ax2.plot(kSgrid / kF, real(s[1, :]); color="#$(colors(nstep + 1)[i])")
     end
     ax2.plot(kSgrid / kF, Σ0, "--"; color="k", lw=1.5, label="\$i=0\$")
     ax2.plot(kSgrid / kF, Σ1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
@@ -199,7 +243,7 @@ function main()
 
     for (i, e) in enumerate(Eqp)
         i == 1 && continue
-        ax3.plot(kSgrid / kF, e; color="#$(colors(ne + 1)[i])")
+        ax3.plot(kSgrid / kF, e; color="#$(colors(nstep + 1)[i])")
     end
     ax3.plot(kSgrid / kF, E0, "--"; color="k", lw=1.5, label="\$i=0\$")
     ax3.plot(kSgrid / kF, E1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
@@ -208,7 +252,7 @@ function main()
 
     for (i, z) in enumerate(Zqp)
         i == 1 && continue
-        ax4.plot(kSgrid / kF, z; color="#$(colors(nz + 1)[i])")
+        ax4.plot(kSgrid / kF, z; color="#$(colors(nstep + 1)[i])")
     end
     ax4.plot(kSgrid / kF, Z0, "--"; color="k", lw=1.5, label="\$i=0\$")
     ax4.plot(kSgrid / kF, Z1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
@@ -217,7 +261,7 @@ function main()
 
     for (i, p) in enumerate(Πqp)
         i == 1 && continue
-        ax5.plot(qPgrid / kF, real(p[1, :]); color="#$(colors(np + 1)[i])")
+        ax5.plot(qPgrid / kF, real(p[1, :]); color="#$(colors(nstep + 1)[i])")
     end
     ax5.plot(qPgrid / kF, Π0, "--"; color="k", lw=1.5, label="\$i=0\$")
     ax5.plot(qPgrid / kF, Π1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
@@ -226,7 +270,7 @@ function main()
 
     for (i, w) in enumerate(Wqp)
         i == 1 && continue
-        ax6.plot(qPgrid / kF, 1 .+ real(w[1, :]) ./ V; color="#$(colors(nw + 1)[i])")
+        ax6.plot(qPgrid / kF, 1 .+ real(w[1, :]) ./ V; color="#$(colors(nstep + 1)[i])")
     end
     ax6.plot(qPgrid / kF, 1 .+ W0 ./ V, "--"; color="k", lw=1.5, label="\$i=0\$")
     ax6.plot(qPgrid / kF, 1 .+ W1 ./ V; color=cdict["grey"], lw=1.5, label="\$i=1\$")
@@ -273,177 +317,178 @@ function main()
     ax6.legend(; loc="lower right", fontsize=14)
 
     plt.subplots_adjust(; wspace=wspace)
-    plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs).pdf")
+    plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs)_prev_rs_with_rescale.pdf")
+    # plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs)_prev_rs_without_rescale.pdf")
     return
 
-    # Plot Σ_ins convergence
-    fig, ax = plt.subplots()
-    plotdata, n_max = loaddata("Σ_ins")
-    for (idx, sigma_ins) in enumerate(plotdata)
-        i = idx - 1
-        fmt = i == 0 ? "--" : "-"
-        if i == 0
-            lw = 1
-            label = nothing
-            color = "black"
-        elseif i == n_max
-            lw = 1.5
-            label = "\$N_\\text{iter} = $n_max\$"
-            color = "limegreen"
-        else
-            lw = 1
-            label = nothing
-            color = "#$(colors(n_max)[i])"
-        end
-        # kgrid = sigma_ins.mesh[2]
-        ax.plot(kSgrid / kF, real(sigma_ins[1, :]), fmt; color=color, lw=lw, label=label)
-    end
-    ax.set_xlim(0, 2)
-    ax.set_xlabel("\$k / k_F\$")
-    ax.set_ylabel("\$\\Sigma^{(i)}_{x}(k)\$")
-    ax.legend(; fontsize=12)
-    plt.tight_layout()
-    fig.savefig("convergence_sigma_ins_rs=$rs.pdf")
+    # # Plot Σ_ins convergence
+    # fig, ax = plt.subplots()
+    # plotdata, n_max = loaddata("Σ_ins")
+    # for (idx, sigma_ins) in enumerate(plotdata)
+    #     i = idx - 1
+    #     fmt = i == 0 ? "--" : "-"
+    #     if i == 0
+    #         lw = 1
+    #         label = nothing
+    #         color = "black"
+    #     elseif i == n_max
+    #         lw = 1.5
+    #         label = "\$N_\\text{iter} = $n_max\$"
+    #         color = "limegreen"
+    #     else
+    #         lw = 1
+    #         label = nothing
+    #         color = "#$(colors(n_max)[i])"
+    #     end
+    #     # kgrid = sigma_ins.mesh[2]
+    #     ax.plot(kSgrid / kF, real(sigma_ins[1, :]), fmt; color=color, lw=lw, label=label)
+    # end
+    # ax.set_xlim(0, 2)
+    # ax.set_xlabel("\$k / k_F\$")
+    # ax.set_ylabel("\$\\Sigma^{(i)}_{x}(k)\$")
+    # ax.legend(; fontsize=12)
+    # plt.tight_layout()
+    # fig.savefig("convergence_sigma_ins_rs=$rs.pdf")
 
-    # Plot Π convergence
-    fig, ax = plt.subplots()
-    plotdata, n_max = loaddata("Π")
-    for (idx, Π) in enumerate(plotdata)
-        i = idx - 1
-        fmt = i == 0 ? "--" : "-"
-        if i == 0
-            lw = 1
-            label = nothing
-            color = "black"
-        elseif i == n_max
-            lw = 1.5
-            label = "\$N_\\text{iter} = $n_max\$"
-            color = "limegreen"
-        else
-            lw = 1
-            label = nothing
-            color = "#$(colors(n_max)[i])"
-        end
-        pi_q_static = Π[1, :]
-        ax.plot(qPgrid / kF, real.(pi_q_static), fmt; color=color, lw=lw, label=label)
-    end
-    ax.set_xlim(0, 4)
-    ax.set_xlabel("\$q / k_F\$")
-    ax.set_ylabel("\$\\Pi^{(i)}(q, i\\nu_m = 0)\$")
-    ax.legend(; fontsize=12)
-    plt.tight_layout()
-    fig.savefig("convergence_pi_static_rs=$rs.pdf")
+    # # Plot Π convergence
+    # fig, ax = plt.subplots()
+    # plotdata, n_max = loaddata("Π")
+    # for (idx, Π) in enumerate(plotdata)
+    #     i = idx - 1
+    #     fmt = i == 0 ? "--" : "-"
+    #     if i == 0
+    #         lw = 1
+    #         label = nothing
+    #         color = "black"
+    #     elseif i == n_max
+    #         lw = 1.5
+    #         label = "\$N_\\text{iter} = $n_max\$"
+    #         color = "limegreen"
+    #     else
+    #         lw = 1
+    #         label = nothing
+    #         color = "#$(colors(n_max)[i])"
+    #     end
+    #     pi_q_static = Π[1, :]
+    #     ax.plot(qPgrid / kF, real.(pi_q_static), fmt; color=color, lw=lw, label=label)
+    # end
+    # ax.set_xlim(0, 4)
+    # ax.set_xlabel("\$q / k_F\$")
+    # ax.set_ylabel("\$\\Pi^{(i)}(q, i\\nu_m = 0)\$")
+    # ax.legend(; fontsize=12)
+    # plt.tight_layout()
+    # fig.savefig("convergence_pi_static_rs=$rs.pdf")
 
-    # Plot dielectric function convergence
-    fig, ax = plt.subplots()
-    plotdata, n_max = loaddata("Π")
-    for (idx, Π) in enumerate(plotdata)
-        i = idx - 1
-        fmt = i == 0 ? "--" : "-"
-        if i == 0
-            lw = 1
-            label = nothing
-            color = "black"
-        elseif i == n_max
-            lw = 1.5
-            label = "\$N_\\text{iter} = $n_max\$"
-            color = "limegreen"
-        else
-            lw = 1
-            label = nothing
-            color = "#$(colors(n_max)[i])"
-        end
-        pi_q_static = Π[1, :]
-        v_q = [Interaction.coulomb(q, param)[1] for q in qPgrid]
-        inverse_static_dielectric = 1.0 ./ (1.0 .- 2.0 * v_q .* real.(pi_q_static))
-        ax.plot(
-            qPgrid / kF,
-            inverse_static_dielectric,
-            fmt;
-            color=color,
-            lw=lw,
-            label=label,
-        )
-        # ax.plot(qPgrid * param.rs, inverse_static_dielectric, fmt; color=color, lw=lw, label=label)
-    end
-    # ax.set_xlim(0, 5 * kF)
-    # ax.set_xticks([0, 0.5, 1, 1.5, 2])
-    # ax.set_ylim(0, 1)
-    # ax.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
-    ax.set_xlim(0, 3)
-    ax.set_xlabel("\$q / k_F\$")
-    # ax.set_xlim(0, 5)
-    # ax.set_xlabel("\$q * r_s\$")
-    ax.set_ylabel("\$1 / \\epsilon^{(i)}(q, i\\nu_m = 0)\$")
-    ax.legend(; fontsize=12)
-    plt.tight_layout()
-    fig.savefig("convergence_inverse_dielectric_static_rs=$rs.pdf")
+    # # Plot dielectric function convergence
+    # fig, ax = plt.subplots()
+    # plotdata, n_max = loaddata("Π")
+    # for (idx, Π) in enumerate(plotdata)
+    #     i = idx - 1
+    #     fmt = i == 0 ? "--" : "-"
+    #     if i == 0
+    #         lw = 1
+    #         label = nothing
+    #         color = "black"
+    #     elseif i == n_max
+    #         lw = 1.5
+    #         label = "\$N_\\text{iter} = $n_max\$"
+    #         color = "limegreen"
+    #     else
+    #         lw = 1
+    #         label = nothing
+    #         color = "#$(colors(n_max)[i])"
+    #     end
+    #     pi_q_static = Π[1, :]
+    #     v_q = [Interaction.coulomb(q, param)[1] for q in qPgrid]
+    #     inverse_static_dielectric = 1.0 ./ (1.0 .- 2.0 * v_q .* real.(pi_q_static))
+    #     ax.plot(
+    #         qPgrid / kF,
+    #         inverse_static_dielectric,
+    #         fmt;
+    #         color=color,
+    #         lw=lw,
+    #         label=label,
+    #     )
+    #     # ax.plot(qPgrid * param.rs, inverse_static_dielectric, fmt; color=color, lw=lw, label=label)
+    # end
+    # # ax.set_xlim(0, 5 * kF)
+    # # ax.set_xticks([0, 0.5, 1, 1.5, 2])
+    # # ax.set_ylim(0, 1)
+    # # ax.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    # ax.set_xlim(0, 3)
+    # ax.set_xlabel("\$q / k_F\$")
+    # # ax.set_xlim(0, 5)
+    # # ax.set_xlabel("\$q * r_s\$")
+    # ax.set_ylabel("\$1 / \\epsilon^{(i)}(q, i\\nu_m = 0)\$")
+    # ax.legend(; fontsize=12)
+    # plt.tight_layout()
+    # fig.savefig("convergence_inverse_dielectric_static_rs=$rs.pdf")
 
-    # Plot Z factor convergence
-    fig, ax = plt.subplots()
-    plotdata, n_max = loaddata("Z_k")
-    for (idx, zfactor_kSgrid) in enumerate(plotdata)
-        i = idx - 1
-        fmt = i == 0 ? "--" : "-"
-        if i == 0
-            lw = 1
-            label = nothing
-            color = "black"
-        elseif i == n_max
-            lw = 1.5
-            label = "\$N_\\text{iter} = $n_max\$"
-            color = "limegreen"
-        else
-            lw = 1
-            label = nothing
-            color = "#$(colors(n_max)[i])"
-        end
-        ax.plot(kSgrid / kF, zfactor_kSgrid, fmt; color=color, lw=lw, label=label)
-    end
-    ax.set_xlim(0, 4)
-    ax.set_xlabel("\$k / k_F\$")
-    ax.set_ylabel("\$Z^{(i)}_k\$")
-    ax.legend(; fontsize=12)
-    plt.tight_layout()
-    fig.savefig("convergence_zfactor_rs=$rs.pdf")
+    # # Plot Z factor convergence
+    # fig, ax = plt.subplots()
+    # plotdata, n_max = loaddata("Z_k")
+    # for (idx, zfactor_kSgrid) in enumerate(plotdata)
+    #     i = idx - 1
+    #     fmt = i == 0 ? "--" : "-"
+    #     if i == 0
+    #         lw = 1
+    #         label = nothing
+    #         color = "black"
+    #     elseif i == n_max
+    #         lw = 1.5
+    #         label = "\$N_\\text{iter} = $n_max\$"
+    #         color = "limegreen"
+    #     else
+    #         lw = 1
+    #         label = nothing
+    #         color = "#$(colors(n_max)[i])"
+    #     end
+    #     ax.plot(kSgrid / kF, zfactor_kSgrid, fmt; color=color, lw=lw, label=label)
+    # end
+    # ax.set_xlim(0, 4)
+    # ax.set_xlabel("\$k / k_F\$")
+    # ax.set_ylabel("\$Z^{(i)}_k\$")
+    # ax.legend(; fontsize=12)
+    # plt.tight_layout()
+    # fig.savefig("convergence_zfactor_rs=$rs.pdf")
 
-    # Plot E_qp convergence
-    ylimits = Dict(
-        0.01 => (-4.5, 11),
-        0.5 => (-4.5, 11),
-        1.0 => (-5, 14),
-        2.0 => (-0.25, 0.5),
-        3.0 => (-0.2, 0.55),
-        4.0 => (-0.2, 0.55),
-        5.0 => (-0.2, 0.55),
-    )
-    fig, ax = plt.subplots()
-    plotdata, n_max = loaddata("E_k")
-    for (idx, E_qp_kSgrid) in enumerate(plotdata)
-        i = idx - 1
-        fmt = i == 0 ? "--" : "-"
-        if i == 0
-            lw = 1
-            label = nothing
-            color = "black"
-        elseif i == n_max
-            lw = 1.5
-            label = "\$N_\\text{iter} = $n_max\$"
-            color = "limegreen"
-        else
-            lw = 1
-            label = nothing
-            color = "#$(colors(n_max)[i])"
-        end
-        ax.plot(kSgrid / kF, E_qp_kSgrid, fmt; color=color, lw=lw, label=label)
-    end
-    ax.set_xlim(0, 2)
-    ax.set_ylim(ylimits[rs])
-    ax.set_xlabel("\$k / k_F\$")
-    ax.set_ylabel("\$\\mathcal{E}^{(i)}_{\\text{qp}}(k)\$")
-    ax.legend(; fontsize=12)
-    plt.tight_layout()
-    fig.savefig("convergence_quasiparticle_energy_rs=$rs.pdf")
+    # # Plot E_qp convergence
+    # ylimits = Dict(
+    #     0.01 => (-4.5, 11),
+    #     0.5 => (-4.5, 11),
+    #     1.0 => (-5, 14),
+    #     2.0 => (-0.25, 0.5),
+    #     3.0 => (-0.2, 0.55),
+    #     4.0 => (-0.2, 0.55),
+    #     5.0 => (-0.2, 0.55),
+    # )
+    # fig, ax = plt.subplots()
+    # plotdata, n_max = loaddata("E_k")
+    # for (idx, E_qp_kSgrid) in enumerate(plotdata)
+    #     i = idx - 1
+    #     fmt = i == 0 ? "--" : "-"
+    #     if i == 0
+    #         lw = 1
+    #         label = nothing
+    #         color = "black"
+    #     elseif i == n_max
+    #         lw = 1.5
+    #         label = "\$N_\\text{iter} = $n_max\$"
+    #         color = "limegreen"
+    #     else
+    #         lw = 1
+    #         label = nothing
+    #         color = "#$(colors(n_max)[i])"
+    #     end
+    #     ax.plot(kSgrid / kF, E_qp_kSgrid, fmt; color=color, lw=lw, label=label)
+    # end
+    # ax.set_xlim(0, 2)
+    # ax.set_ylim(ylimits[rs])
+    # ax.set_xlabel("\$k / k_F\$")
+    # ax.set_ylabel("\$\\mathcal{E}^{(i)}_{\\text{qp}}(k)\$")
+    # ax.legend(; fontsize=12)
+    # plt.tight_layout()
+    # fig.savefig("convergence_quasiparticle_energy_rs=$rs.pdf")
 
     return
 end
