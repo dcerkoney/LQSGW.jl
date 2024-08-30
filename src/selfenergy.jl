@@ -168,6 +168,7 @@ function get_starting_point(
     Fs,
     Fa,
     Σ_GW;
+    rescale=true,
     loaddir=nothing,
     loadname=nothing,
 )
@@ -177,6 +178,12 @@ function get_starting_point(
     rank = MPI.Comm_rank(comm)
     if isnothing(loaddir) == false && isnothing(loadname) == false
         loaddata, loadparam = load_lqsgw_starting_point(loaddir, loadname)
+        # Either relabel or rescale the starting point for Σ to match the current parameters
+        if rescale
+            loaddata = rescale_starting_point(param, loaddata, loadparam, fdlr, kSgrid)
+        else
+            loaddata = relabel_starting_point(param, loaddata, loadparam, fdlr, kSgrid)
+        end
         starting_point_type = "LQSGW"
     else
         loaddata = initialize_g0w0_starting_point(
@@ -204,7 +211,7 @@ end
 # Helper function to relabel the starting point for Σ to match the current parameters 
 function relabel_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr, kSgrid)
     # Relabel starting point for Σ if it was calculated at a different value for rs
-    #if param.rs != loadparam.rs 
+    if param.rs != loadparam.rs
         xgrid_old = loaddata.Σ.mesh[2] / loadparam.kF
         xgrid_new = kSgrid / param.kF
         @assert isapprox(xgrid_old, xgrid_new, rtol=1e-7) "Mismatch in dimensionless kgrids for new/old Σ data!"
@@ -218,7 +225,7 @@ function relabel_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr
         )
         # Reconstruct the starting point using the current parameters
         loaddata = reconstruct(loaddata; Σ=Σ_relabeled, Σ_ins=Σ_ins_relabeled)
-    #end
+    end
     return loaddata
 end
 
@@ -586,8 +593,6 @@ function Σ_LQSGW(
         loaddir=loaddir,
         loadname=loadname,
     )
-    prev_step = relabel_starting_point(param, prev_step, prev_param, fdlr, kSgrid)
-    #prev_step = rescale_starting_point(param, prev_step, prev_param, fdlr, kSgrid)
     if verbose
         println_root("""
         Using $(starting_point_type) starting point with:
