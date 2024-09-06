@@ -9,7 +9,7 @@ using Parameters
 using PyCall
 using PyPlot
 
-@pyimport numpy as nstep   # for saving/loading numpy data
+@pyimport numpy as np   # for saving/loading numpy data
 @pyimport scienceplots  # for style "science"
 @pyimport scipy.interpolate as interp
 
