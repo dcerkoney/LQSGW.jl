@@ -96,21 +96,20 @@ function lindhard(x)
     return 0.5 + ((1 - x^2) / 4x) * log(abs((1 + x) / (1 - x)))
 end
 
-# RPA/KO+ integrands for F0p in the limit rs → ∞
-integrand_F0p_dilute_limit(x) = -0.5 * x / lindhard(x / 2.0)
-
 function integrand_F0p(x, rs_tilde, Fs=0.0)
-    if isinf(rs_tilde)
-        return integrand_F0p_dilute_limit(x)
+    if isinf(rs_tilde) && Fs == 0.0
+        return -0.25 * x / lindhard(x / 2.0)
+    elseif isinf(rs_tilde)
+        return Inf  # Fs ~ rs^2!
     end
     coeff = rs_tilde + Fs * x^2
-    NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x / 2.0))
-    return -0.5 * x * NF_times_Rp_ex
+    NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x / 2.0)) - Fs
+    return -0.25 * x * NF_times_Rp_ex
 end
 
 function integrand_F0m(x, Fa=0.0)
-    NF_times_Rm_ex = Fa / (1 + Fa * lindhard(x / 2.0))
-    return -0.5 * x * NF_times_Rm_ex
+    NF_times_Rm_ex = Fa / (1 + Fa * lindhard(x / 2.0)) - Fa
+    return -0.25 * x * NF_times_Rm_ex
 end
 
 function integrand_F0(x, rs_tilde, Fs=0.0, Fa=0.0)
@@ -138,15 +137,16 @@ function plot_integrand_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
     end
     # ax.set_xlabel("\$x = \\left| \\mathbf{k} - \\mathbf{k}^\\prime \\right| / k_F\$")
     ax.set_xlabel("\$x\$")
-    ax.set_ylabel("\$\\delta F^+_0(x)\$")
-    ax.legend(; fontsize=12, loc="best")
+    ax.set_ylabel("\$F^+_0(x)\$")
+    ax.legend(; fontsize=10, loc="best")
     # tight_layout()
     signstr_Fs = sign_Fs > 0 ? "Fs_positive" : "Fs_negative"
     signstr_Fa = sign_Fa > 0 ? "Fa_positive" : "Fa_negative"
     fig.savefig("integrand_F0p_$(signstr_Fs)_$(signstr_Fa).pdf")
+    plt.close("all")
 end
 
-function plot_analytic_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
+function get_analytic_F0p(; plot=false, sign_Fs=-1.0, sign_Fa=-1.0)
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     F0p_RPA = []
     F0p_KOp = []
@@ -174,39 +174,44 @@ function plot_analytic_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
         val_KO = CompositeGrids.Interp.integrate1D(y_KO, xgrid)
         push!(F0p_KO, val_KO)
     end
-    fig, ax = plt.subplots()
-    ax.plot(rslist, F0p_RPA; color=cdict["orange"], label="\$W_0\$")
-    ax.plot(rslist, F0p_KOp; color=cdict["blue"], label="\$W^\\text{KO}_{0,+}\$")
-    ax.plot(rslist, F0p_KOm; color=cdict["cyan"], label="\$W^\\text{KO}_{0,-}\$")
-    ax.plot(
-        rslist,
-        F0p_KO;
-        color=cdict["magenta"],
-        label="\$W^\\text{KO}_{0} = W^\\text{KO}_{0,+} + 3 W^\\text{KO}_{0,-}\$",
-    )
-    # ax.plot(
-    #     rslist,
-    #     get_Fs_PW.(rslist);
-    #     color=cdict["grey"],
-    #     label="\$F^+ = \\kappa_0 / \\kappa - 1\$",
-    #     zorder=-1,
-    # )
-    legend(; loc="best", fontsize=12)
-    xlabel("\$r_s\$")
-    ylabel("\$F^+_{0,t} - F^+\$")
-    # ylim(-1.1, 0.6)
-    ax.legend(; fontsize=10, loc="best")
-    # tight_layout()
-    signstr_Fs = sign_Fs > 0 ? "Fs_positive" : "Fs_negative"
-    signstr_Fa = sign_Fa > 0 ? "Fa_positive" : "Fa_negative"
-    fig.savefig("analytic_F0p_$(signstr_Fs)_$(signstr_Fa).pdf")
+    if plot
+        fig, ax = plt.subplots()
+        ax.plot(rslist, F0p_RPA; color=cdict["orange"], label="\$W_0\$")
+        ax.plot(rslist, F0p_KOp; color=cdict["blue"], label="\$W^\\text{KO}_{0,+}\$")
+        ax.plot(rslist, F0p_KOm; color=cdict["cyan"], label="\$W^\\text{KO}_{0,-}\$")
+        ax.plot(
+            rslist,
+            F0p_KO;
+            color=cdict["magenta"],
+            label="\$W^\\text{KO}_{0} = W^\\text{KO}_{0,+} + 3 W^\\text{KO}_{0,-}\$",
+        )
+        ax.plot(
+            rslist,
+            get_Fs_PW.(rslist);
+            color=cdict["grey"],
+            label="\$F^+ = \\kappa_0 / \\kappa - 1\$",
+            zorder=-1,
+        )
+        legend(; loc="best", fontsize=12)
+        xlabel("\$r_s\$")
+        ylabel("\$F^+_{0,t}\$")
+        # ylabel("\$F^+_{0,t} - F^+\$")
+        # ylim(-1.1, 0.6)
+        ax.legend(; fontsize=10, loc="best")
+        # tight_layout()
+        signstr_Fs = sign_Fs > 0 ? "Fs_positive" : "Fs_negative"
+        signstr_Fa = sign_Fa > 0 ? "Fa_positive" : "Fa_negative"
+        fig.savefig("analytic_F0p_$(signstr_Fs)_$(signstr_Fa).pdf")
+        plt.close("all")
+    end
+    return rslist, F0p_RPA, F0p_KOp, F0p_KOm, F0p_KO
 end
 
 function plot_integrand_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
     # ...
 end
 
-function plot_analytic_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
+function get_analytic_F1p(; plot=false, sign_Fs=-1.0, sign_Fa=-1.0)
     # ...
 end
 
@@ -217,17 +222,17 @@ function main()
 
     # --
     plot_integrand_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
-    plot_analytic_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    get_analytic_F0p(; plot=true, sign_Fs=-1.0, sign_Fa=-1.0)
     plot_integrand_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
-    plot_analytic_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    get_analytic_F1p(; plot=true, sign_Fs=-1.0, sign_Fa=-1.0)
 
     # ++
     plot_integrand_F0p(; sign_Fs=+1.0, sign_Fa=+1.0)
-    plot_analytic_F0p(; sign_Fs=+1.0, sign_Fa=+1.0)
+    get_analytic_F0p(; plot=true, sign_Fs=+1.0, sign_Fa=+1.0)
     plot_integrand_F1p(; sign_Fs=+1.0, sign_Fa=+1.0)
-    plot_analytic_F1p(; sign_Fs=+1.0, sign_Fa=+1.0)
+    get_analytic_F1p(; plot=true, sign_Fs=+1.0, sign_Fa=+1.0)
 
-    return
+    # return
 
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
@@ -448,16 +453,16 @@ function main()
         [cdict["blue"], cdict["cyan"], cdict["teal"]],
     ]
 
-    function plot_mvsrs(rs, meff_data, color, label, ls="-", ax=ax; zorder=nothing)
+    function plot_mvsrs(rs, meff_data, color, label, ls="-"; ax1=plt.gca(), zorder=nothing)
         # mfitfunc = interp.PchipInterpolator(rs, meff_data)
         mfitfunc = interp.Akima1DInterpolator(rs, meff_data)
         xgrid = np.arange(0, maximum(rslist) + 0.2, 0.01)
         # xgrid = np.arange(0, 6.2, 0.01)
-        # ax.scatter(rs, meff_data; color=color, marker="o")
+        # ax1.scatter(rs, meff_data; color=color, marker="o")
         if isnothing(zorder)
-            handle, = ax.plot(xgrid, mfitfunc(xgrid); ls=ls, color=color, label=label)
+            handle, = ax1.plot(xgrid, mfitfunc(xgrid); ls=ls, color=color, label=label)
         else
-            handle, = ax.plot(
+            handle, = ax1.plot(
                 xgrid,
                 mfitfunc(xgrid);
                 ls=ls,
@@ -474,41 +479,69 @@ function main()
     end
 
     # Plot F0 vs rs
-    fig = figure(; figsize=(6, 6))
-    ax = fig.add_subplot(111)
+    fig1 = figure(; figsize=(6, 6))
+    ax1 = fig1.add_subplot(111)
 
-    # Full F^+(rs)
-    plot_mvsrs(rslist, Fp_vs_rs, cdict["grey"], "\$F^+ = \\kappa_0 / \\kappa - 1\$", "-")
+    # Fsull F^+(rs)
+    plot_mvsrs(
+        rslist,
+        -Fp_vs_rs,
+        cdict["grey"],
+        "\$F^+ = \\kappa_0 / \\kappa - 1\$",
+        "-"
+    )
+
+    _, F0p_RPA, F0p_KOp, _, F0p_KO =
+        get_analytic_F0p(; plot=false, sign_Fs=+1.0, sign_Fa=+1.0)
+    pushfirst!(F0p_RPA, 0.0)
+    pushfirst!(F0p_KOp, 0.0)
+    pushfirst!(F0p_KO, 0.0)
 
     # Tree-level RPA
     plot_mvsrs(rslist, F0p_rpa_vs_rs_ueg, cdict["orange"], "\$W_0\$", "-")
+    plot_mvsrs(rslist, F0p_RPA, cdict["orange"], nothing, "--")
     # plot_mvsrs(rslist, F0p_rpa_vs_rs, cdict["orange"], "\$W_0\$", "-")
     # plot_mvsrs(rslist, F0p_rpa_vs_rs_ueg, cdict["blue"], "\$W_0\$ (NEFT)", "--")
 
     # Tree-level KO with fp only
-    plot_mvsrs(rslist, F0p_fp_vs_rs_ueg, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
+    plot_mvsrs(
+        rslist,
+        F0p_fp_vs_rs_ueg,
+        cdict["blue"],
+        "\$W^\\text{KO}_{0,+}\$",
+        "-"
+    )
+    plot_mvsrs(rslist, F0p_KOp, cdict["blue"], nothing, "--")
     # plot_mvsrs(rslist, F0p_fp_vs_rs, cdict["red"], "\$W^\\text{KO}_{0,+}\$", "-")
     # plot_mvsrs(rslist, F0p_fp_vs_rs_ueg, cdict["teal"], "\$W^\\text{KO}_{0,+}\$ (NEFT)", "--")
 
     # Tree-level KO with fp and fm
-    plot_mvsrs(rslist, F0p_fp_fm_vs_rs_ueg, cdict["cyan"], "\$W^\\text{KO}_{0}\$", "-")
+    plot_mvsrs(
+        rslist,
+        F0p_fp_fm_vs_rs_ueg,
+        cdict["magenta"],
+        "\$W^\\text{KO}_{0}\$",
+        "-"
+    )
+    plot_mvsrs(rslist, F0p_KO, cdict["magenta"], nothing, "--")
     # plot_mvsrs(rslist, F0p_fp_fm_vs_rs, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
-    # plot_mvsrs(rslist, F0p_fp_fm_vs_rs_ueg, cdict["cyan"], "\$W^\\text{KO}_{0}\$ (NEFT)", "--")
+    # plot_mvsrs(rslist, F0p_fp_fm_vs_rs_ueg, cdict["magenta"], "\$W^\\text{KO}_{0}\$ (NEFT)", "--")
 
-    legend(; loc="best", fontsize=12)
-    ylabel("\$F^+_0 \\approx \\langle W(k + k^\\prime - q) \\rangle_\\text{F.S.}\$")
+    legend(; loc="best", fontsize=10)
+    ylabel("\$F^+_0\$")
+    # ylabel("\$F^+_0 \\approx \\langle W(k + k^\\prime - q) \\rangle_\\text{F.S.}\$")
     # ylabel("\$m^* / m\$")
     xlabel("\$r_s\$")
     # ylim(-0.056, 0.034)
-    ylim(-1.1, 0.6)
+    # ylim(-1.1, 0.6)
     tight_layout()
     savefig("F0p_comparisons_ko_const.pdf")
     # savefig("F1p_comparisons_ko_takada.pdf")
     # savefig("F1p_comparisons_ko_simion_giuliani.pdf")
 
     # Plot F1 vs rs
-    fig = figure(; figsize=(6, 6))
-    ax = fig.add_subplot(111)
+    fig1 = figure(; figsize=(6, 6))
+    ax1 = fig1.add_subplot(111)
 
     # Tree-level RPA
     plot_mvsrs(rslist, F1p_rpa_vs_rs, cdict["orange"], "\$W_0\$", "-")
@@ -519,8 +552,8 @@ function main()
     # plot_mvsrs(rslist, F1p_fp_vs_rs_ueg, cdict["teal"], "\$W^\\text{KO}_{0,+}\$ (NEFT)", "--")
 
     # Tree-level KO with fp and fm
-    plot_mvsrs(rslist, F1p_fp_fm_vs_rs, cdict["cyan"], "\$W^\\text{KO}_{0}\$", "-")
-    # plot_mvsrs(rslist, F1p_fp_fm_vs_rs_ueg, cdict["cyan"], "\$W^\\text{KO}_{0}\$ (NEFT)", "--")
+    plot_mvsrs(rslist, F1p_fp_fm_vs_rs, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
+    # plot_mvsrs(rslist, F1p_fp_fm_vs_rs_ueg, cdict["magenta"], "\$W^\\text{KO}_{0}\$ (NEFT)", "--")
 
     legend(; loc="best", fontsize=12)
     ylabel(
@@ -528,8 +561,8 @@ function main()
     )
     # ylabel("\$m^* / m\$")
     xlabel("\$r_s\$")
-    ylim(-0.056, 0.034)
-    # ylim(-0.072, 0.034)
+    # ylim(-0.056, 0.034)
+    ylim(-0.072, 0.034)
     tight_layout()
     savefig("F1p_comparisons_ko_const.pdf")
     # savefig("F1p_comparisons_ko_takada.pdf")
