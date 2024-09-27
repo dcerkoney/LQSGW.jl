@@ -66,10 +66,11 @@ compressibility ratio data of Perdew & Wang (1992) [Phys. Rev. B 45, 13244].
     #     @warn "The Perdew-Wang interpolation for Fs may " *
     #           "be inaccurate outside the metallic regime!"
     # end
-    kappa0_over_kappa = 1.0025 - 0.1721rs - 0.0036rs^2
+    kappa0_over_kappa = 1.0025 - 0.1721 * rs - 0.0036 * rs^2
     # NOTE: NEFT uses opposite sign convention for F!
-    # -F⁰ₛ = 1 - κ₀/κ
-    return 1.0 - kappa0_over_kappa
+    # -F⁰ₛ = 1 - κ₀/κ > 0
+    # F⁰ₛ = κ₀/κ - 1 < 0
+    return kappa0_over_kappa - 1.0
 end
 
 """
@@ -77,16 +78,156 @@ Get the antisymmetric l=0 Fermi-liquid parameter F⁰ₐ via interpolation of th
 susceptibility ratio data (c.f. Kukkonen & Chen, 2021)
 """
 @inline function get_Fa_PW(rs)
-    chi0_over_chi = 0.9821 - 0.1232rs + 0.0091rs^2
+    chi0_over_chi = 0.9821 - 0.1232 * rs + 0.0091 * rs^2
     # NOTE: NEFT uses opposite sign convention for F!
     # -F⁰ₐ = 1 - χ₀/χ
-    return 1.0 - chi0_over_chi
+    # F⁰ₐ = χ₀/χ - 1 < 0
+    return chi0_over_chi - 1.0
+end
+
+const alpha_ueg = (4 / 9π)^(1 / 3)
+
+function lindhard(x)
+    if x == 0
+        return 1.0
+    elseif x == 1
+        return 0.5
+    end
+    return 0.5 + ((1 - x^2) / 4x) * log(abs((1 + x) / (1 - x)))
+end
+
+# RPA/KO+ integrands for F0p in the limit rs → ∞
+integrand_F0p_dilute_limit(x) = -0.5 * x / lindhard(x / 2.0)
+
+function integrand_F0p(x, rs_tilde, Fs=0.0)
+    if isinf(rs_tilde)
+        return integrand_F0p_dilute_limit(x)
+    end
+    coeff = rs_tilde + Fs * x^2
+    NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x / 2.0))
+    return -0.5 * x * NF_times_Rp_ex
+end
+
+function integrand_F0m(x, Fa=0.0)
+    NF_times_Rm_ex = Fa / (1 + Fa * lindhard(x / 2.0))
+    return -0.5 * x * NF_times_Rm_ex
+end
+
+function integrand_F0(x, rs_tilde, Fs=0.0, Fa=0.0)
+    return integrand_F0p(x, rs_tilde, Fs) + 3 * integrand_F0m(x, Fa)
+end
+
+function plot_integrand_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    rslist = [0, 1, 5, 10, Inf]
+    colorlist = [cdict["grey"], cdict["orange"], cdict["blue"], cdict["magenta"], "black"]
+    fig, ax = plt.subplots()
+    x = np.linspace(0, 2, 1000)
+    for (rs, color) in zip(rslist, colorlist)
+        Fs_RPA = 0.0
+        Fs_PW = sign_Fs * get_Fs_PW(rs)
+        for (Fs, linestyle) in zip([Fs_RPA, Fs_PW], ["--", "-"])
+            if linestyle == "--"
+                label = nothing
+            else
+                rsstr = rs == Inf ? "\\infty" : string(Int(rs))
+                label = "\$r_s = $rsstr\$"
+            end
+            y = [integrand_F0p(xi, rs * alpha_ueg, Fs) for xi in x]
+            ax.plot(x, y; linestyle=linestyle, color=color, label=label)
+        end
+    end
+    # ax.set_xlabel("\$x = \\left| \\mathbf{k} - \\mathbf{k}^\\prime \\right| / k_F\$")
+    ax.set_xlabel("\$x\$")
+    ax.set_ylabel("\$\\delta F^+_0(x)\$")
+    ax.legend(; fontsize=12, loc="best")
+    # tight_layout()
+    signstr_Fs = sign_Fs > 0 ? "Fs_positive" : "Fs_negative"
+    signstr_Fa = sign_Fa > 0 ? "Fa_positive" : "Fa_negative"
+    fig.savefig("integrand_F0p_$(signstr_Fs)_$(signstr_Fa).pdf")
+end
+
+function plot_analytic_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
+    F0p_RPA = []
+    F0p_KOp = []
+    F0p_KOm = []
+    F0p_KO = []
+    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
+    xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 2.0], [0.0, 2.0], 16, 1e-6, 16)
+    for rs in rslist
+        Fs = sign_Fs * get_Fs_PW(rs)
+        Fa = sign_Fa * get_Fa_PW(rs)
+        # RPA
+        y_RPA = [integrand_F0p(x, rs * alpha_ueg) for x in xgrid]
+        val_RPA = CompositeGrids.Interp.integrate1D(y_RPA, xgrid)
+        push!(F0p_RPA, val_RPA)
+        # KO+
+        y_KOp = [integrand_F0p(x, rs * alpha_ueg, Fs) for x in xgrid]
+        val_KOp = CompositeGrids.Interp.integrate1D(y_KOp, xgrid)
+        push!(F0p_KOp, val_KOp)
+        # KO-
+        y_KOm = [integrand_F0m(x, Fa) for x in xgrid]
+        val_KOm = CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
+        push!(F0p_KOm, val_KOm)
+        # KO
+        y_KO = [integrand_F0(x, rs * alpha_ueg, Fs, Fa) for x in xgrid]
+        val_KO = CompositeGrids.Interp.integrate1D(y_KO, xgrid)
+        push!(F0p_KO, val_KO)
+    end
+    fig, ax = plt.subplots()
+    ax.plot(rslist, F0p_RPA; color=cdict["orange"], label="\$W_0\$")
+    ax.plot(rslist, F0p_KOp; color=cdict["blue"], label="\$W^\\text{KO}_{0,+}\$")
+    ax.plot(rslist, F0p_KOm; color=cdict["cyan"], label="\$W^\\text{KO}_{0,-}\$")
+    ax.plot(
+        rslist,
+        F0p_KO;
+        color=cdict["magenta"],
+        label="\$W^\\text{KO}_{0} = W^\\text{KO}_{0,+} + 3 W^\\text{KO}_{0,-}\$",
+    )
+    # ax.plot(
+    #     rslist,
+    #     get_Fs_PW.(rslist);
+    #     color=cdict["grey"],
+    #     label="\$F^+ = \\kappa_0 / \\kappa - 1\$",
+    #     zorder=-1,
+    # )
+    legend(; loc="best", fontsize=12)
+    xlabel("\$r_s\$")
+    ylabel("\$F^+_{0,t} - F^+\$")
+    # ylim(-1.1, 0.6)
+    ax.legend(; fontsize=10, loc="best")
+    # tight_layout()
+    signstr_Fs = sign_Fs > 0 ? "Fs_positive" : "Fs_negative"
+    signstr_Fa = sign_Fa > 0 ? "Fa_positive" : "Fa_negative"
+    fig.savefig("analytic_F0p_$(signstr_Fs)_$(signstr_Fa).pdf")
+end
+
+function plot_integrand_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    # ...
+end
+
+function plot_analytic_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    # ...
 end
 
 function main()
     # UEG parameters
     beta = 1000.0
     dim = 3
+
+    # --
+    plot_integrand_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    plot_analytic_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    plot_integrand_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    plot_analytic_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
+
+    # ++
+    plot_integrand_F0p(; sign_Fs=+1.0, sign_Fa=+1.0)
+    plot_analytic_F0p(; sign_Fs=+1.0, sign_Fa=+1.0)
+    plot_integrand_F1p(; sign_Fs=+1.0, sign_Fa=+1.0)
+    plot_analytic_F1p(; sign_Fs=+1.0, sign_Fa=+1.0)
+
+    return
 
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
@@ -213,10 +354,9 @@ function main()
         @assert maximum(imag(R_static)) ≤ 1e-10
 
         # The F0 angular integrands are W0_{+}(p, iωₙ=0) / 2, R_{+}(p, iωₙ=0) / 2, and (R_{+}(p, iωₙ=0) + 3 R_{-}(p, iωₙ=0)) / 2, respectively
-        F0p_rpa_integrand =
-            @. -0.5 * param.NF * sin.(thetas) * real(W0_plus_static) * (π/4)
-        F0p_fp_integrand = @. -0.5 * param.NF * sin.(thetas) * real(R_plus_static) * (π/4)
-        F0p_fp_fm_integrand = @. -0.5 * param.NF * sin.(thetas) * real(R_static) * (π/4)
+        F0p_rpa_integrand = @. -0.25 * param.NF * real(W0_plus_static)
+        F0p_fp_integrand = @. -0.25 * param.NF * real(R_plus_static)
+        F0p_fp_fm_integrand = @. -0.25 * param.NF * real(R_static)
 
         # The F1 angular integrands are ν W0_{+}(p, iωₙ=0) / 2, ν R_{+}(p, iωₙ=0) / 2, and ν (R_{+}(p, iωₙ=0) + 3 R_{-}(p, iωₙ=0)) / 2, respectively
         F1p_rpa_integrand = @. -0.5 * param.NF * nus * real(W0_plus_static)
@@ -383,7 +523,9 @@ function main()
     # plot_mvsrs(rslist, F1p_fp_fm_vs_rs_ueg, cdict["cyan"], "\$W^\\text{KO}_{0}\$ (NEFT)", "--")
 
     legend(; loc="best", fontsize=12)
-    ylabel("\$F^+_1 \\approx \\langle W(k + k^\\prime - q) \\cos\\theta_{k,k^\\prime}\\rangle_\\text{F.S.}\$")
+    ylabel(
+        "\$F^+_1 \\approx \\langle W(k + k^\\prime - q) \\cos\\theta_{k,k^\\prime}\\rangle_\\text{F.S.}\$",
+    )
     # ylabel("\$m^* / m\$")
     xlabel("\$r_s\$")
     ylim(-0.056, 0.034)
