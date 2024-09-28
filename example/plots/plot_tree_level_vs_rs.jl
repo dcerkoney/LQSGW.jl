@@ -116,6 +116,18 @@ function integrand_F0(x, rs_tilde, Fs=0.0, Fa=0.0)
     return integrand_F0p(x, rs_tilde, Fs) + 3 * integrand_F0m(x, Fa)
 end
 
+function integrand_F1p(x, rs_tilde, Fs=0.0)
+    return (1 - x^2 / 2) * integrand_F0p(x, rs_tilde, Fs)
+end
+
+function integrand_F1m(x, Fa=0.0)
+    return (1 - x^2 / 2) * integrand_F0m(x, Fa)
+end
+
+function integrand_F1(x, rs_tilde, Fs=0.0, Fa=0.0)
+    return integrand_F1p(x, rs_tilde, Fs) + 3 * integrand_F1m(x, Fa)
+end
+
 function plot_integrand_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
     rslist = [0, 1, 5, 10, Inf]
     colorlist = [cdict["grey"], cdict["orange"], cdict["blue"], cdict["magenta"], "black"]
@@ -137,12 +149,42 @@ function plot_integrand_F0p(; sign_Fs=-1.0, sign_Fa=-1.0)
     end
     # ax.set_xlabel("\$x = \\left| \\mathbf{k} - \\mathbf{k}^\\prime \\right| / k_F\$")
     ax.set_xlabel("\$x\$")
-    ax.set_ylabel("\$F^+_0(x)\$")
+    ax.set_ylabel("\$I_0(x)\$")
     ax.legend(; fontsize=10, loc="best")
     # tight_layout()
     signstr_Fs = sign_Fs > 0 ? "Fs_positive" : "Fs_negative"
     signstr_Fa = sign_Fa > 0 ? "Fa_positive" : "Fa_negative"
     fig.savefig("integrand_F0p_$(signstr_Fs)_$(signstr_Fa).pdf")
+    plt.close("all")
+end
+
+function plot_integrand_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
+    rslist = [0, 1, 5, 10, Inf]
+    colorlist = [cdict["grey"], cdict["orange"], cdict["blue"], cdict["magenta"], "black"]
+    fig, ax = plt.subplots()
+    x = np.linspace(0, 2, 1000)
+    for (rs, color) in zip(rslist, colorlist)
+        Fs_RPA = 0.0
+        Fs_PW = sign_Fs * get_Fs_PW(rs)
+        for (Fs, linestyle) in zip([Fs_RPA, Fs_PW], ["--", "-"])
+            if linestyle == "--"
+                label = nothing
+            else
+                rsstr = rs == Inf ? "\\infty" : string(Int(rs))
+                label = "\$r_s = $rsstr\$"
+            end
+            y = [integrand_F1p(xi, rs * alpha_ueg, Fs) for xi in x]
+            ax.plot(x, y; linestyle=linestyle, color=color, label=label)
+        end
+    end
+    # ax.set_xlabel("\$x = \\left| \\mathbf{k} - \\mathbf{k}^\\prime \\right| / k_F\$")
+    ax.set_xlabel("\$x\$")
+    ax.set_ylabel("\$I_1(x)\$")
+    ax.legend(; fontsize=10, loc="best")
+    # tight_layout()
+    signstr_Fs = sign_Fs > 0 ? "Fs_positive" : "Fs_negative"
+    signstr_Fa = sign_Fa > 0 ? "Fa_positive" : "Fa_negative"
+    fig.savefig("integrand_F1p_$(signstr_Fs)_$(signstr_Fa).pdf")
     plt.close("all")
 end
 
@@ -207,12 +249,57 @@ function get_analytic_F0p(; plot=false, sign_Fs=-1.0, sign_Fa=-1.0)
     return rslist, F0p_RPA, F0p_KOp, F0p_KOm, F0p_KO
 end
 
-function plot_integrand_F1p(; sign_Fs=-1.0, sign_Fa=-1.0)
-    # ...
-end
-
 function get_analytic_F1p(; plot=false, sign_Fs=-1.0, sign_Fa=-1.0)
-    # ...
+    rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
+    F1p_RPA = []
+    F1p_KOp = []
+    F1p_KOm = []
+    F1p_KO = []
+    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
+    xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 2.0], [0.0, 2.0], 16, 1e-6, 16)
+    for rs in rslist
+        Fs = sign_Fs * get_Fs_PW(rs)
+        Fa = sign_Fa * get_Fa_PW(rs)
+        # RPA
+        y_RPA = [integrand_F1p(x, rs * alpha_ueg) for x in xgrid]
+        val_RPA = CompositeGrids.Interp.integrate1D(y_RPA, xgrid)
+        push!(F1p_RPA, val_RPA)
+        # KO+
+        y_KOp = [integrand_F1p(x, rs * alpha_ueg, Fs) for x in xgrid]
+        val_KOp = CompositeGrids.Interp.integrate1D(y_KOp, xgrid)
+        push!(F1p_KOp, val_KOp)
+        # KO-
+        y_KOm = [integrand_F1m(x, Fa) for x in xgrid]
+        val_KOm = CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
+        push!(F1p_KOm, val_KOm)
+        # KO
+        y_KO = [integrand_F1(x, rs * alpha_ueg, Fs, Fa) for x in xgrid]
+        val_KO = CompositeGrids.Interp.integrate1D(y_KO, xgrid)
+        push!(F1p_KO, val_KO)
+    end
+    if plot
+        fig, ax = plt.subplots()
+        ax.plot(rslist, F1p_RPA; color=cdict["orange"], label="\$W_0\$")
+        ax.plot(rslist, F1p_KOp; color=cdict["blue"], label="\$W^\\text{KO}_{0,+}\$")
+        ax.plot(rslist, F1p_KOm; color=cdict["cyan"], label="\$W^\\text{KO}_{0,-}\$")
+        ax.plot(
+            rslist,
+            F1p_KO;
+            color=cdict["magenta"],
+            label="\$W^\\text{KO}_{0} = W^\\text{KO}_{0,+} + 3 W^\\text{KO}_{0,-}\$",
+        )
+        legend(; loc="best", fontsize=12)
+        xlabel("\$r_s\$")
+        ylabel("\$F^+_{1,t}\$")
+        # ylim(-1.1, 0.6)
+        ax.legend(; fontsize=10, loc="best")
+        # tight_layout()
+        signstr_Fs = sign_Fs > 0 ? "Fs_positive" : "Fs_negative"
+        signstr_Fa = sign_Fa > 0 ? "Fa_positive" : "Fa_negative"
+        fig.savefig("analytic_F1p_$(signstr_Fs)_$(signstr_Fa).pdf")
+        plt.close("all")
+    end
+    return rslist, F1p_RPA, F1p_KOp, F1p_KOm, F1p_KO
 end
 
 function main()
@@ -483,13 +570,7 @@ function main()
     ax1 = fig1.add_subplot(111)
 
     # Fsull F^+(rs)
-    plot_mvsrs(
-        rslist,
-        -Fp_vs_rs,
-        cdict["grey"],
-        "\$F^+ = \\kappa_0 / \\kappa - 1\$",
-        "-"
-    )
+    plot_mvsrs(rslist, -Fp_vs_rs, cdict["grey"], "\$F^+ = \\kappa_0 / \\kappa - 1\$", "-")
 
     _, F0p_RPA, F0p_KOp, _, F0p_KO =
         get_analytic_F0p(; plot=false, sign_Fs=+1.0, sign_Fa=+1.0)
@@ -504,31 +585,19 @@ function main()
     # plot_mvsrs(rslist, F0p_rpa_vs_rs_ueg, cdict["blue"], "\$W_0\$ (NEFT)", "--")
 
     # Tree-level KO with fp only
-    plot_mvsrs(
-        rslist,
-        F0p_fp_vs_rs_ueg,
-        cdict["blue"],
-        "\$W^\\text{KO}_{0,+}\$",
-        "-"
-    )
+    plot_mvsrs(rslist, F0p_fp_vs_rs_ueg, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
     plot_mvsrs(rslist, F0p_KOp, cdict["blue"], nothing, "--")
     # plot_mvsrs(rslist, F0p_fp_vs_rs, cdict["red"], "\$W^\\text{KO}_{0,+}\$", "-")
     # plot_mvsrs(rslist, F0p_fp_vs_rs_ueg, cdict["teal"], "\$W^\\text{KO}_{0,+}\$ (NEFT)", "--")
 
     # Tree-level KO with fp and fm
-    plot_mvsrs(
-        rslist,
-        F0p_fp_fm_vs_rs_ueg,
-        cdict["magenta"],
-        "\$W^\\text{KO}_{0}\$",
-        "-"
-    )
+    plot_mvsrs(rslist, F0p_fp_fm_vs_rs_ueg, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
     plot_mvsrs(rslist, F0p_KO, cdict["magenta"], nothing, "--")
     # plot_mvsrs(rslist, F0p_fp_fm_vs_rs, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
     # plot_mvsrs(rslist, F0p_fp_fm_vs_rs_ueg, cdict["magenta"], "\$W^\\text{KO}_{0}\$ (NEFT)", "--")
 
     legend(; loc="best", fontsize=10)
-    ylabel("\$F^+_0\$")
+    ylabel("\$F^+_{0,t}\$")
     # ylabel("\$F^+_0 \\approx \\langle W(k + k^\\prime - q) \\rangle_\\text{F.S.}\$")
     # ylabel("\$m^* / m\$")
     xlabel("\$r_s\$")
@@ -543,23 +612,32 @@ function main()
     fig1 = figure(; figsize=(6, 6))
     ax1 = fig1.add_subplot(111)
 
+    _, F1p_RPA, F1p_KOp, _, F1p_KO =
+        get_analytic_F1p(; plot=false, sign_Fs=+1.0, sign_Fa=+1.0)
+    pushfirst!(F1p_RPA, 0.0)
+    pushfirst!(F1p_KOp, 0.0)
+    pushfirst!(F1p_KO, 0.0)
+
     # Tree-level RPA
     plot_mvsrs(rslist, F1p_rpa_vs_rs, cdict["orange"], "\$W_0\$", "-")
+    plot_mvsrs(rslist, F1p_RPA, cdict["orange"], nothing, "--")
     # plot_mvsrs(rslist, F1p_rpa_vs_rs_ueg, cdict["blue"], "\$W_0\$ (NEFT)", "--")
 
     # Tree-level KO with fp only
     plot_mvsrs(rslist, F1p_fp_vs_rs, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
+    plot_mvsrs(rslist, F1p_KOp, cdict["blue"], nothing, "--")
     # plot_mvsrs(rslist, F1p_fp_vs_rs_ueg, cdict["teal"], "\$W^\\text{KO}_{0,+}\$ (NEFT)", "--")
 
     # Tree-level KO with fp and fm
     plot_mvsrs(rslist, F1p_fp_fm_vs_rs, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
+    plot_mvsrs(rslist, F1p_KO, cdict["magenta"], nothing, "--")
     # plot_mvsrs(rslist, F1p_fp_fm_vs_rs_ueg, cdict["magenta"], "\$W^\\text{KO}_{0}\$ (NEFT)", "--")
 
-    legend(; loc="best", fontsize=12)
-    ylabel(
-        "\$F^+_1 \\approx \\langle W(k + k^\\prime - q) \\cos\\theta_{k,k^\\prime}\\rangle_\\text{F.S.}\$",
-    )
-    # ylabel("\$m^* / m\$")
+    legend(; loc="best", fontsize=10)
+    ylabel("\$F^+_{1,t}\$")
+    # ylabel(
+    #     "\$F^+_1 \\approx \\langle W(k + k^\\prime - q) \\cos\\theta_{k,k^\\prime}\\rangle_\\text{F.S.}\$",
+    # )
     xlabel("\$r_s\$")
     # ylim(-0.056, 0.034)
     ylim(-0.072, 0.034)
