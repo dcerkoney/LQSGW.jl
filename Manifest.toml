@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.2"
+julia_version = "1.10.3"
 manifest_format = "2.0"
 project_hash = "85b0b5a73cf50b56c50ede08bf423281ca81b37b"
 
@@ -86,7 +86,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.1.0+0"
+version = "1.1.1+0"
 
 [[deps.CompositeGrids]]
 deps = ["DelimitedFiles", "FastGaussQuadrature", "LinearAlgebra", "Printf", "Quadmath", "Random", "StaticArrays", "Statistics"]
