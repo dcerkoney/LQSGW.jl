@@ -86,27 +86,30 @@ end
 const alpha_ueg = (4 / 9π)^(1 / 3)
 
 function lindhard(x)
-    if x == 0
-        return 1.0
-    elseif x == 1
+    if abs(x) < 1e-4
+        return 1.0 - x^2 / 3 - x^4 / 15
+    elseif abs(x - 1) < 1e-5
         return 0.5
+    elseif x > 20
+        return 1 / (3 * x^2) + 1 / (15 * x^4)
     end
-    return 0.5 + ((1 - x^2) / 4x) * log(abs((1 + x) / (1 - x)))
+    return 0.5 + ((1 - x^2) / (4 * x)) * log(abs((1 + x) / (1 - x)))
 end
 
 function integrand_F0p(x, rs_tilde, Fs=0.0)
     if isinf(rs_tilde) && Fs == 0.0
         return -x / lindhard(x)
-    elseif isinf(rs_tilde)
-        return Inf  # Fs ~ rs^2!
     end
+    # elseif isinf(rs_tilde)
+    #     return Inf  # Fs ~ rs^2!
+    # end
     coeff = rs_tilde + Fs * x^2
-    NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x)) - Fs
+    NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x))
     return -x * NF_times_Rp_ex
 end
 
 function integrand_F0m(x, Fa=0.0)
-    NF_times_Rm_ex = Fa / (1 + Fa * lindhard(x)) - Fa
+    NF_times_Rm_ex = Fa / (1 + Fa * lindhard(x))
     return -x * NF_times_Rm_ex
 end
 
@@ -198,6 +201,8 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
     F0p_KOm = []
     F0p_KO = []
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+    y_RPA_inf = [integrand_F0p(x, Inf) for x in xgrid]
+    F0p_RPA_inf = CompositeGrids.Interp.integrate1D(y_RPA_inf, xgrid)
     for rs in rslist
         Fs = sign_Fsa * get_Fs_PW(rs)
         Fa = sign_Fsa * get_Fa_PW(rs)
@@ -210,15 +215,16 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
         push!(F0p_RPA, val_RPA)
         # KO+
         y_KOp = [integrand_F0p(x, rs * alpha_ueg / π, Fs) for x in xgrid]
-        val_KOp = CompositeGrids.Interp.integrate1D(y_KOp, xgrid)
+        val_KOp = (Fs / 2) + CompositeGrids.Interp.integrate1D(y_KOp, xgrid)
         push!(F0p_KOp, val_KOp)
         # KO-
         y_KOm = [integrand_F0m(x, Fa) for x in xgrid]
-        val_KOm = CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
+        val_KOm = (Fa / 2) + CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
         push!(F0p_KOm, val_KOm)
         # KO
+        Fse = (Fs + 3 * Fa)
         y_KO = [integrand_F0(x, rs * alpha_ueg / π, Fs, Fa) for x in xgrid]
-        val_KO = CompositeGrids.Interp.integrate1D(y_KO, xgrid)
+        val_KO = (Fse / 2) + CompositeGrids.Interp.integrate1D(y_KO, xgrid)
         push!(F0p_KO, val_KO)
     end
     if plot
@@ -237,7 +243,7 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
             "\$F^+ = \\kappa_0 / \\kappa - 1\$"
         ax.plot(
             rslist,
-            sign_Fsa * get_Fs_PW.(rslist);
+            sign_Fsa * get_Fs_PW.(rslist) / 2;
             color=cdict["grey"],
             label=labelstr,
             zorder=-1,
@@ -282,6 +288,7 @@ function get_analytic_F1p(rslist; plot=false, sign_Fsa=+1.0)
         val_KOm = CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
         push!(F1p_KOm, val_KOm)
         # KO
+        Fse = (Fs + 3 * Fa)
         y_KO = [integrand_F1(x, rs * alpha_ueg / π, Fs, Fa) for x in xgrid]
         val_KO = CompositeGrids.Interp.integrate1D(y_KO, xgrid)
         push!(F1p_KO, val_KO)
@@ -316,7 +323,7 @@ function main()
     dim = 3
 
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
-    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
+    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 20.0; step=0.125))]))
 
     # Using the ElectronLiquid.jl (v + f) convention ⟹ F± < 0
     sign_Fsa = -1.0
