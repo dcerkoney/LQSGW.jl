@@ -152,6 +152,7 @@ function plot_integrand_F0p(; sign_Fsa=+1.0)
     ax.set_xlabel("\$x\$")
     ax.set_ylabel("\$I_0(x)\$")
     ax.legend(; fontsize=10, loc="best")
+    ylim(-2.4, nothing)
     # tight_layout()
     signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
     fig.savefig("integrand_F0p_$(signstr_Fsa).pdf")
@@ -190,13 +191,12 @@ function plot_integrand_F1p(; sign_Fsa=+1.0)
     plt.close("all")
 end
 
-function get_analytic_F0p(; plot=false, sign_Fsa=+1.0)
+function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     F0p_RPA = []
     F0p_KOp = []
     F0p_KOm = []
     F0p_KO = []
-    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
     for rs in rslist
         Fs = sign_Fsa * get_Fs_PW(rs)
@@ -256,13 +256,12 @@ function get_analytic_F0p(; plot=false, sign_Fsa=+1.0)
     return rslist, F0p_RPA, F0p_KOp, F0p_KOm, F0p_KO
 end
 
-function get_analytic_F1p(; plot=false, sign_Fsa=+1.0)
+function get_analytic_F1p(rslist; plot=false, sign_Fsa=+1.0)
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     F1p_RPA = []
     F1p_KOp = []
     F1p_KOm = []
     F1p_KO = []
-    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
     for rs in rslist
         Fs = sign_Fsa * get_Fs_PW(rs)
@@ -301,7 +300,7 @@ function get_analytic_F1p(; plot=false, sign_Fsa=+1.0)
         legend(; loc="best", fontsize=12)
         xlabel("\$r_s\$")
         ylabel("\$F^+_{1,t}\$")
-        # ylim(-1.1, 0.6)
+        ylim(-0.21, nothing)
         ax.legend(; fontsize=10, loc="best")
         # tight_layout()
         signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
@@ -316,41 +315,26 @@ function main()
     beta = 1000.0
     dim = 3
 
-    # trying both F± > 0 and F± < 0
-    sign_Fsa = +1.0
-    # sign_Fsa = -1.0
+    rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
+    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
+
+    # Using the ElectronLiquid.jl (v + f) convention ⟹ F± < 0
+    sign_Fsa = -1.0
     signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
 
     # l=0 plots
     plot_integrand_F0p(; sign_Fsa=sign_Fsa)
-    _, F0p_RPA, F0p_KOp, _, F0p_KO = get_analytic_F0p(; plot=true, sign_Fsa=sign_Fsa)
+    _, F0p_RPA, F0p_KOp, _, F0p_KO = get_analytic_F0p(rslist; plot=true, sign_Fsa=sign_Fsa)
     pushfirst!(F0p_RPA, 0.0)
     pushfirst!(F0p_KOp, 0.0)
     pushfirst!(F0p_KO, 0.0)
 
     # l=1 plots
     plot_integrand_F1p(; sign_Fsa=sign_Fsa)
-    _, F1p_RPA, F1p_KOp, _, F1p_KO = get_analytic_F1p(; plot=true, sign_Fsa=sign_Fsa)
+    _, F1p_RPA, F1p_KOp, _, F1p_KO = get_analytic_F1p(rslist; plot=true, sign_Fsa=sign_Fsa)
     pushfirst!(F1p_RPA, 0.0)
     pushfirst!(F1p_KOp, 0.0)
     pushfirst!(F1p_KO, 0.0)
-
-    # # l=0 plots
-    # plot_integrand_F0p(; sign_Fsa=sign_Fsa)
-    # # plot_integrand_F0p(; sign_Fsa=-sign_Fsa)
-    # get_analytic_F0p(; plot=true, sign_Fsa=sign_Fsa)
-    # # get_analytic_F0p(; plot=true, sign_Fsa=-sign_Fsa)
-
-    # # l=1 plots
-    # plot_integrand_F1p(; sign_Fsa=sign_Fsa)
-    # # plot_integrand_F1p(; sign_Fsa=-sign_Fsa)
-    # get_analytic_F1p(; plot=true, sign_Fsa=sign_Fsa)
-    # # get_analytic_F1p(; plot=true, sign_Fsa=-sign_Fsa)
-
-    # return
-
-    rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
-    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
 
     Fp_vs_rs = []
     # F0p_rpa_vs_rs = []
