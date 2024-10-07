@@ -14,6 +14,17 @@ using PyPlot
 @pyimport scienceplots  # for style "science"
 @pyimport scipy.interpolate as interp
 
+# Mapping of interaction types to Landau parameters
+const int_type_to_landaufunc = Dict(
+    :rpa => Interaction.landauParameter0,
+    :ko_const => Interaction.landauParameterConst,
+    :ko_takada => Interaction.landauParameterTakada,
+    :ko_takada_plus => Interaction.landauParameterTakadaPlus,
+    :ko_moroni => Interaction.landauParameterMoroni,
+    :ko_simion_giuliani => Interaction.landauParameterSimionGiuliani,
+    :ko_simion_giuliani_plus => Interaction.landauParameterSimionGiulianiPlus,
+)
+
 # Vibrant qualitative colour scheme from https://personal.sron.nl/~pault/
 const cdict = Dict([
     "orange" => "#EE7733",
@@ -85,6 +96,12 @@ end
 
 const alpha_ueg = (4 / 9π)^(1 / 3)
 
+# Taylor series for m* / m in the high-density limit to leading order in rs
+# (c.f. Giuliani & Vignale, Quantum Theory of the Electron Liquid, 2008, p. 500)
+function high_density_limit(x)
+    return 1 + alpha_ueg * x * np.log(x) / 2π
+end
+
 function lindhard(x)
     if abs(x) < 1e-4
         return 1.0 - x^2 / 3 - x^4 / 15
@@ -97,20 +114,17 @@ function lindhard(x)
 end
 
 function integrand_F0p(x, rs_tilde, Fs=0.0)
-    if isinf(rs_tilde) && Fs == 0.0
+    if isinf(rs_tilde)
         return -x / lindhard(x)
     end
-    # elseif isinf(rs_tilde)
-    #     return Inf  # Fs ~ rs^2!
-    # end
     coeff = rs_tilde + Fs * x^2
     NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x))
-    return -x * NF_times_Rp_ex
+    return -2 * x * NF_times_Rp_ex
 end
 
 function integrand_F0m(x, Fa=0.0)
     NF_times_Rm_ex = Fa / (1 + Fa * lindhard(x))
-    return -x * NF_times_Rm_ex
+    return -2 * x * NF_times_Rm_ex
 end
 
 function integrand_F0(x, rs_tilde, Fs=0.0, Fa=0.0)
@@ -137,9 +151,9 @@ function plot_integrand_F0p(; sign_Fsa=+1.0)
     for (rs, color) in zip(rslist, colorlist)
         Fs_RPA = 0.0
         Fs_PW = sign_Fsa * get_Fs_PW(rs)
-        # if rs > 0.25
-        #     @assert Fs_PW < 0 "Incorrect sign for Fs"
-        # end
+        if rs > 0.25
+            @assert Fs_PW < 0 "Incorrect sign for Fs"
+        end
         for (Fs, linestyle) in zip([Fs_RPA, Fs_PW], ["--", "-"])
             if linestyle == "--"
                 label = nothing
@@ -155,7 +169,7 @@ function plot_integrand_F0p(; sign_Fsa=+1.0)
     ax.set_xlabel("\$x\$")
     ax.set_ylabel("\$I_0(x)\$")
     ax.legend(; fontsize=10, loc="best")
-    ylim(-2.4, nothing)
+    ylim(-4.8, nothing)
     # tight_layout()
     signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
     fig.savefig("integrand_F0p_$(signstr_Fsa).pdf")
@@ -170,9 +184,9 @@ function plot_integrand_F1p(; sign_Fsa=+1.0)
     for (rs, color) in zip(rslist, colorlist)
         Fs_RPA = 0.0
         Fs_PW = sign_Fsa * get_Fs_PW(rs)
-        # if rs > 0.25
-        #     @assert Fs_PW < 0 "Incorrect sign for Fs"
-        # end
+        if rs > 0.25
+            @assert Fs_PW < 0 "Incorrect sign for Fs"
+        end
         for (Fs, linestyle) in zip([Fs_RPA, Fs_PW], ["--", "-"])
             if linestyle == "--"
                 label = nothing
@@ -206,9 +220,9 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
     for rs in rslist
         Fs = sign_Fsa * get_Fs_PW(rs)
         Fa = sign_Fsa * get_Fa_PW(rs)
-        # if rs > 0.25
-        #     @assert Fs < 0 && Fa < 0 "Incorrect sign for Fsa"
-        # end
+        if rs > 0.25
+            @assert Fs < 0 && Fa < 0 "Incorrect sign for Fsa"
+        end
         # RPA
         y_RPA = [integrand_F0p(x, rs * alpha_ueg / π) for x in xgrid]
         val_RPA = CompositeGrids.Interp.integrate1D(y_RPA, xgrid)
@@ -259,7 +273,7 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
         fig.savefig("analytic_F0p_$(signstr_Fsa).pdf")
         plt.close("all")
     end
-    return rslist, F0p_RPA, F0p_KOp, F0p_KOm, F0p_KO
+    return F0p_RPA, F0p_KOp, F0p_KO
 end
 
 function get_analytic_F1p(rslist; plot=false, sign_Fsa=+1.0)
@@ -307,251 +321,204 @@ function get_analytic_F1p(rslist; plot=false, sign_Fsa=+1.0)
         legend(; loc="best", fontsize=12)
         xlabel("\$r_s\$")
         ylabel("\$F^+_{1,t}\$")
-        ylim(-0.21, nothing)
+        ylim(-0.42, nothing)
         ax.legend(; fontsize=10, loc="best")
         # tight_layout()
         signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
         fig.savefig("analytic_F1p_$(signstr_Fsa).pdf")
         plt.close("all")
     end
-    return rslist, F1p_RPA, F1p_KOp, F1p_KOm, F1p_KO
+    return F1p_RPA, F1p_KOp, F1p_KO
+end
+
+function get_Flp_ElectronGas(l::Integer, param::Parameter.Para, Fs, Fa, int_type=:ko_const)
+    @unpack kF, EF, NF = param
+
+    # DLR parameters
+    Euv = 1000 * EF
+    rtol = 1e-14
+
+    # Dimensionless angular integration grid
+    xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+    k_m_kps = @. 2 * kF * xgrid
+
+    # Select the appropriate Landau function for the given interaction type
+    landaufunc = int_type_to_landaufunc[int_type]
+
+    # Get R(p, iωₙ=0) (spin-symmetric static exchange part of the KO interaction)
+    R_ex_dyn, R_ex_inst_inv = Interaction.KOwrapped(
+        Euv,
+        rtol,
+        k_m_kps,
+        param;
+        regular=false,
+        int_type=int_type,
+        landaufunc=landaufunc,
+        Fs=Fs,
+        Fa=Fa,
+    )
+    R_ex_inst = 1 ./ R_ex_inst_inv
+    @assert R_ex_dyn.mesh[2].grid[1] == 0
+
+    # Get the static, spin-symmetric/antisymmetric parts of the interaction
+    R_ex_static_s = R_ex_dyn[1, 1, :] + R_ex_inst[1, 1, :]
+    R_ex_static_a = R_ex_dyn[2, 1, :] + R_ex_inst[2, 1, :]
+
+    # Swap spin indices to match external legs
+    # NOTE: the extra factor of 2 comes from the spin summation in Flp
+    R_plus_static = 2 * exchange_to_direct(R_ex_static_s, R_ex_static_a)[1]
+    @assert maximum(imag(R_plus_static)) ≤ 1e-10
+
+    # Perform dimensionless angular integration
+    if l == 0
+        integrand = @. -real(2 * NF * R_plus_static) * xgrid
+    elseif l == 1
+        integrand = @. -real(2 * NF * R_plus_static) * xgrid * (1 - 2 * xgrid^2)
+    else
+        error("l > 1 not yet implemented!")
+    end
+    Flp = CompositeGrids.Interp.integrate1D(integrand, xgrid)
+    return Flp
+end
+
+function get_tree_level_Flp_ElectronGas(
+    l::Integer,
+    param::Parameter.Para;
+    int_type=:ko_const,
+)
+    Fs = Fa = 0.0
+    if int_type == :ko_const
+        int_type_fp = int_type_fp_fm = int_type
+        # Get Fermi liquid parameter F⁰ₛ(rs) from Perdew-Wang fit
+        Fs = get_Fs_PW(param.rs)
+        Fa = get_Fa_PW(param.rs)
+        if param.rs > 0.25
+            @assert Fs > 0 && Fa > 0 "Incorrect sign for Fsa"
+        end
+    elseif int_type == :ko_simion_giuliani
+        int_type_fp = :ko_simion_giuliani_plus
+        int_type_fp_fm = :ko_simion_giuliani
+    elseif int_type == :ko_takada
+        int_type_fp = :ko_takada_plus
+        int_type_fp_fm = :ko_takada
+    end
+    Flp_rpa = get_Flp_ElectronGas(l, param, 0.0, 0.0, :rpa)
+    Flp_fp = get_Flp_ElectronGas(l, param, Fs, 0.0, int_type_fp)
+    Flp_fp_fm = get_Flp_ElectronGas(l, param, Fs, Fa, int_type_fp_fm)
+    return Flp_rpa, Flp_fp, Flp_fp_fm
+end
+
+function get_tree_level_Flp_ElectronLiquid(l::Integer, param::Parameter.Para; verbose=0)
+    @unpack rs, beta, dim = param
+    # Get Fermi liquid parameter F⁰ₛ(rs) from Perdew-Wang fit
+    # NOTE: ElectronLiquid.jl uses the opposite sign convention from ElectronGas.jl for Fs/Fa!
+    Fs = -get_Fs_PW(param.rs)
+    Fa = -get_Fa_PW(param.rs)
+    if param.rs > 0.25
+        @assert Fs < 0 && Fa < 0 "Incorrect sign for Fsa"
+    end
+    W_ex = Ver4.exchange_interaction
+    p_rpa = ParaMC(; rs=rs, beta=beta, dim=dim, Fs=0.0, Fa=0.0, order=1, mass2=0.0)
+    p_fp = ParaMC(; rs=rs, beta=beta, dim=dim, Fs=Fs, Fa=0.0, order=1, mass2=0.0)
+    p_fp_fm = ParaMC(; rs=rs, beta=beta, dim=dim, Fs=Fs, Fa=Fa, order=1, mass2=0.0)
+    Flp_rpa = -2 * Ver4.projected_exchange_interaction(l, p_rpa, W_ex; verbose=verbose)[1]
+    Flp_fp = -2 * Ver4.projected_exchange_interaction(l, p_fp, W_ex; verbose=verbose)[1]
+    Flp_fp_fm =
+        -2 * Ver4.projected_exchange_interaction(l, p_fp_fm, W_ex; verbose=verbose)[1]
+    return Flp_rpa, Flp_fp, Flp_fp_fm
+end
+
+function get_meff_ElectronGas(param::Parameter.Para; int_type=:ko_const)
+    @unpack kF, EF, NF = param
+
+    Fs = Fa = 0.0
+    if int_type == :ko_const
+        int_type_fp = int_type_fp_fm = int_type
+        # Get Fermi liquid parameter F⁰ₛ(rs) from Perdew-Wang fit
+        Fs = get_Fs_PW(param.rs)
+        Fa = get_Fa_PW(param.rs)
+        if param.rs > 0.25
+            @assert Fs > 0 && Fa > 0 "Incorrect sign for Fsa"
+        end
+    elseif int_type == :ko_simion_giuliani
+        int_type_fp = :ko_simion_giuliani_plus
+        int_type_fp_fm = :ko_simion_giuliani
+    elseif int_type == :ko_takada
+        int_type_fp = :ko_takada_plus
+        int_type_fp_fm = :ko_takada
+    end
+
+    # Get the RPA effective mass ratio from the G0W0 self-energy
+    Σ_RPA, Σ_ins_RPA = SelfEnergy.G0W0(param; int_type=:rpa)
+    meff_RPA = SelfEnergy.massratio(param, Σ_RPA, Σ_ins_RPA)[1]
+
+    # Get the KOp effective mass ratio from the G0W0 self-energy
+    Σ_KOp, Σ_ins_KOp = SelfEnergy.G0W0(param; Fs=Fs, Fa=0.0, int_type=int_type_fp)
+    meff_KOp = SelfEnergy.massratio(param, Σ_KOp, Σ_ins_KOp)[1]
+
+    # Get the KO effective mass ratio from the G0W0 self-energy
+    Σ_KO, Σ_ins_KO = SelfEnergy.G0W0(param; Fs=Fs, Fa=Fa, int_type=int_type_fp_fm)
+    meff_KO = SelfEnergy.massratio(param, Σ_KO, Σ_ins_KO)[1]
+
+    return meff_RPA, meff_KOp, meff_KO
 end
 
 function main()
     # UEG parameters
     beta = 1000.0
     dim = 3
+    # int_type = :ko_const
+    int_type = :ko_simion_giuliani
 
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
-    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 20.0; step=0.125))]))
+    rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
 
     # Using the ElectronLiquid.jl (v + f) convention ⟹ F± < 0
     sign_Fsa = -1.0
     signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
 
-    # l=0 plots
+    # l=0 analytic plots
     plot_integrand_F0p(; sign_Fsa=sign_Fsa)
-    _, F0p_RPA, F0p_KOp, _, F0p_KO = get_analytic_F0p(rslist; plot=true, sign_Fsa=sign_Fsa)
-    pushfirst!(F0p_RPA, 0.0)
-    pushfirst!(F0p_KOp, 0.0)
-    pushfirst!(F0p_KO, 0.0)
+    F0ps_RPA_A, F0ps_KOp_A, F0ps_KO_A =
+        get_analytic_F0p(rslist; plot=true, sign_Fsa=sign_Fsa)
 
-    # l=1 plots
+    # l=1 analytic plots
     plot_integrand_F1p(; sign_Fsa=sign_Fsa)
-    _, F1p_RPA, F1p_KOp, _, F1p_KO = get_analytic_F1p(rslist; plot=true, sign_Fsa=sign_Fsa)
-    pushfirst!(F1p_RPA, 0.0)
-    pushfirst!(F1p_KOp, 0.0)
-    pushfirst!(F1p_KO, 0.0)
+    F1ps_RPA_A, F1ps_KOp_A, F1ps_KO_A =
+        get_analytic_F1p(rslist; plot=true, sign_Fsa=sign_Fsa)
 
-    Fp_vs_rs = []
-    # F0p_rpa_vs_rs = []
-    # F0p_fp_vs_rs = []
-    # F0p_fp_fm_vs_rs = []
-    F0p_rpa_vs_rs_ueg = []
-    F0p_fp_vs_rs_ueg = []
-    F0p_fp_fm_vs_rs_ueg = []
-    # F1p_rpa_vs_rs = []
-    # F1p_fp_vs_rs = []
-    # F1p_fp_fm_vs_rs = []
-    F1p_rpa_vs_rs_ueg = []
-    F1p_fp_vs_rs_ueg = []
-    F1p_fp_fm_vs_rs_ueg = []
-    for rs in rslist
+    meffs_RPA_C = []
+    meffs_KOp_C = []
+    meffs_KO_C = []
+    meffs_RPA_T = []
+    meffs_KOp_T = []
+    meffs_KO_T = []
+    meffs_RPA_SG = []
+    meffs_KOp_SG = []
+    meffs_KO_SG = []
+    rslist_small = sort(unique([0.125; rs_Fsm1; collect(range(0.25, 10.0; step=0.25))]))
+    for rs in rslist_small
+        print("Computing mass for rs = $(rs)...")
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
-        @unpack kF, EF = param
-        # DLR parameters
-        Euv = 1000 * EF
-        rtol = 1e-14
-        # ElectronGas.jl defaults for G0W0 self-energy
-        maxK = 6 * kF
-        minK = 1e-6 * kF
-        # Get Fermi liquid parameter F⁰ₛ(rs) from Perdew-Wang fit
-        Fs = sign_Fsa * get_Fs_PW(rs)
-        Fa = sign_Fsa * get_Fa_PW(rs)
-
-        # nu_grid =
-        #     CompositeGrid.LogDensedGrid(:gauss, [-1.0, 1.0], [-1.0, 0.0, 1.0], 32, 1e-8, 32)
-        # # nu_grid =
-        # #     CompositeGrid.LogDensedGrid(:gauss, [-1.0, 1.0], [-1.0, 0.0, 1.0], 20, 1e-6, 12)
-        # nus = nu_grid.grid
-        # thetas = acos.(nus)
-
-        # # |k - k'| = kF sqrt(2(1 - ν))
-        # k_m_kps = @. kF * sqrt(2 * (1 - nus))
-
-        # # Get W0_{+}(p, iωₙ=0) (spin-symmetric static exchange part of RPA interaction)
-        # W0_ex_dyn, W0_ex_inst_inv =
-        #     Interaction.RPAwrapped(Euv, rtol, k_m_kps, param; regular=false)
-        # W0_ex_inst = 1 ./ W0_ex_inst_inv
-        # @assert W0_ex_dyn.mesh[2].grid[1] == 0
-
-        # # Get the static, spin-symmetric/antisymmetric parts of the interaction,
-        # # converting from exchange interaction (Ws + Wa \sigma\sigma)_ex to a direct interaction Ws'+Wa' \sigma\sigma
-        # W0_ex_static_s = W0_ex_dyn[1, 1, :] + W0_ex_inst[1, 1, :]
-        # W0_ex_static_a = W0_ex_dyn[2, 1, :] + W0_ex_inst[2, 1, :]
-        # W0_plus_static, W0_minus_static = exchange_to_direct(W0_ex_static_s, W0_ex_static_a)
-        # # W0_plus_static = W0_ex_static_s
-        # # W0_minus_static = W0_ex_static_a
-        # println("rs = $rs:")
-        # println(
-        #     "static W0ex+(q = 0) = $(real(W0_ex_static_s[1])), static W0ex-(q = 0) = $(real(W0_ex_static_a[1]))",
-        # )
-        # println(
-        #     "static W0+(q = 0) = $(real(W0_plus_static[1])), static W0-(q = 0) = $(real(W0_minus_static[1]))",
-        # )
-        # @assert maximum(imag(W0_plus_static)) ≤ 1e-10
-
-        # # Get R_{+}(p, iωₙ=0) (spin-symmetric static exchange part of KO interaction)
-        # R_plus_ex_dyn, R_plus_ex_inst_inv = Interaction.KOwrapped(
-        #     Euv,
-        #     rtol,
-        #     k_m_kps,
-        #     param;
-        #     regular=false,
-        #     int_type=:ko_const,
-        #     landaufunc=Interaction.landauParameterConst,
-        #     Fs=Fs,
-        #     Fa=0.0,
-        # )
-        # R_plus_ex_inst = 1 ./ R_plus_ex_inst_inv
-        # @assert R_plus_ex_dyn.mesh[2].grid[1] == 0
-
-        # # Get the static, spin-symmetric/antisymmetric parts of the interaction,
-        # # converting from exchange interaction (Rs + Ra \sigma\sigma)_ex to a direct interaction Rs'+Ra' \sigma\sigma
-        # R_plus_ex_static_s = R_plus_ex_dyn[1, 1, :] + R_plus_ex_inst[1, 1, :]
-        # R_plus_ex_static_a = R_plus_ex_dyn[2, 1, :] + R_plus_ex_inst[2, 1, :]
-        # R_plus_static, R_plus_minus_static =
-        #     exchange_to_direct(R_plus_ex_static_s, R_plus_ex_static_a)
-        # # R_plus_static = R_plus_ex_static_s
-        # # R_minus_static = R_plus_ex_static_a
-        # println("rs = $rs:")
-        # println(
-        #     "(fp != 0, fm = 0) static Rex+(q = 0) = $(real(R_plus_ex_static_s[1])), static Rex-(q = 0) = $(real(R_plus_ex_static_a[1]))",
-        # )
-        # println(
-        #     "(fp != 0, fm = 0) static R+(q = 0) = $(real(R_plus_static[1])), static R-(q = 0) = $(real(R_plus_minus_static[1]))",
-        # )
-        # @assert maximum(imag(R_plus_static)) ≤ 1e-10
-
-        # # Get R(p, iωₙ=0) (spin-symmetric static exchange part of KO interaction)
-        # R_ex_dyn, R_ex_inst_inv = Interaction.KOwrapped(
-        #     Euv,
-        #     rtol,
-        #     k_m_kps,
-        #     param;
-        #     regular=false,
-        #     int_type=:ko_const,
-        #     landaufunc=Interaction.landauParameterConst,
-        #     Fs=Fs,
-        #     Fa=Fa,
-        # )
-        # R_ex_inst = 1 ./ R_ex_inst_inv
-        # @assert R_ex_dyn.mesh[2].grid[1] == 0
-
-        # # Get the static, spin-symmetric/antisymmetric parts of the interaction,
-        # # converting from exchange interaction (Rs + Ra \sigma\sigma)_ex to a direct interaction Rs'+Ra' \sigma\sigma
-        # R_ex_static_s = R_ex_dyn[1, 1, :] + R_ex_inst[1, 1, :]
-        # R_ex_static_a = R_ex_dyn[2, 1, :] + R_ex_inst[2, 1, :]
-        # R_static, R_minus_static = exchange_to_direct(R_ex_static_s, R_ex_static_a)
-        # # R_static = R_ex_static_s
-        # # R_minus_static = R_ex_static_a
-        # println("rs = $rs:")
-        # println(
-        #     "(fp != 0, fm != 0) static Rex+(q = 0) = $(real(R_ex_static_s[1])), static Rex-(q = 0) = $(real(R_ex_static_a[1]))",
-        # )
-        # println(
-        #     "(fp != 0, fm != 0) static R+(q = 0) = $(real(R_static[1])), static R-(q = 0) = $(real(R_minus_static[1]))",
-        # )
-        # @assert maximum(imag(R_static)) ≤ 1e-10
-
-        # # The F0 angular integrands are W0_{+}(p, iωₙ=0) / 2, R_{+}(p, iωₙ=0) / 2, and (R_{+}(p, iωₙ=0) + 3 R_{-}(p, iωₙ=0)) / 2, respectively
-        # F0p_rpa_integrand = @. -0.25 * param.NF * real(W0_plus_static)
-        # F0p_fp_integrand = @. -0.25 * param.NF * real(R_plus_static)
-        # F0p_fp_fm_integrand = @. -0.25 * param.NF * real(R_static)
-
-        # # The F1 angular integrands are ν W0_{+}(p, iωₙ=0) / 2, ν R_{+}(p, iωₙ=0) / 2, and ν (R_{+}(p, iωₙ=0) + 3 R_{-}(p, iωₙ=0)) / 2, respectively
-        # F1p_rpa_integrand = @. -0.5 * param.NF * nus * real(W0_plus_static)
-        # F1p_fp_integrand = @. -0.5 * param.NF * nus * real(R_plus_static)
-        # F1p_fp_fm_integrand = @. -0.5 * param.NF * nus * real(R_static)
-
-        # # Perform angular integrations ν ∈ [-1, 1]
-        # F0p_rpa = CompositeGrids.Interp.integrate1D(F0p_rpa_integrand, nu_grid)
-        # F0p_fp = CompositeGrids.Interp.integrate1D(F0p_fp_integrand, nu_grid)
-        # F0p_fp_fm = CompositeGrids.Interp.integrate1D(F0p_fp_fm_integrand, nu_grid)
-        # F1p_rpa = CompositeGrids.Interp.integrate1D(F1p_rpa_integrand, nu_grid)
-        # F1p_fp = CompositeGrids.Interp.integrate1D(F1p_fp_integrand, nu_grid)
-        # F1p_fp_fm = CompositeGrids.Interp.integrate1D(F1p_fp_fm_integrand, nu_grid)
-
-        # Use ElectronLiquid.jl to compute the same quantities for constant Fs
-        p_rpa = ParaMC(; rs=rs, beta=beta, Fs=0.0, Fa=0.0, order=1, mass2=0.0)
-        p_fp = ParaMC(; rs=rs, beta=beta, Fs=Fs, Fa=0.0, order=1, mass2=0.0)
-        p_fp_fm = ParaMC(; rs=rs, beta=beta, Fs=Fs, Fa=Fa, order=1, mass2=0.0)
-        F0p_rpa_ueg, _ =
-            -1 .* Ver4.projected_exchange_interaction(0, p_rpa, Ver4.exchange_interaction)
-        F0p_fp_ueg, _ =
-            -1 .* Ver4.projected_exchange_interaction(0, p_fp, Ver4.exchange_interaction)
-        F0p_fp_fm_ueg, _ =
-            -1 .* Ver4.projected_exchange_interaction(0, p_fp_fm, Ver4.exchange_interaction)
-        F1p_rpa_ueg, _ =
-            -1 .* Ver4.projected_exchange_interaction(1, p_rpa, Ver4.exchange_interaction)
-        F1p_fp_ueg, _ =
-            -1 .* Ver4.projected_exchange_interaction(1, p_fp, Ver4.exchange_interaction)
-        F1p_fp_fm_ueg, _ =
-            -1 .* Ver4.projected_exchange_interaction(1, p_fp_fm, Ver4.exchange_interaction)
-        # println(
-        #     "\nrs = $rs:" *
-        #     "\nF^{(RPA)+}_0 = $F0p_rpa" *
-        #     "\nF^{(fp)+}_0 = $F0p_fp" *
-        #     "\nF^{(fp and fm)+}_0 = $F0p_fp_fm",
-        # )
-        println(
-            "\nElectronLiquid:" *
-            "\nF^{(RPA)+}_0 = $F0p_rpa_ueg" *
-            "\nF^{(fp)+}_0 = $F0p_fp_ueg",
-            "\nF^{(fp and fm)+}_0 = $F0p_fp_fm_ueg",
-        )
-        # println(
-        #     "\nrs = $rs:" *
-        #     "\nF^{(RPA)+}_1 = $F1p_rpa" *
-        #     "\nF^{(fp)+}_1 = $F1p_fp" *
-        #     "\nF^{(fp and fm)+}_1 = $F1p_fp_fm",
-        # )
-        println(
-            "\nElectronLiquid:" *
-            "\nF^{(RPA)+}_1 = $F1p_rpa_ueg" *
-            "\nF^{(fp)+}_1 = $F1p_fp_ueg",
-            "\nF^{(fp and fm)+}_1 = $F1p_fp_fm_ueg",
-        )
-        push!(Fp_vs_rs, Fs)
-        # push!(F0p_rpa_vs_rs, F0p_rpa)
-        # push!(F0p_fp_vs_rs, F0p_fp)
-        # push!(F0p_fp_fm_vs_rs, F0p_fp_fm)
-        push!(F0p_rpa_vs_rs_ueg, F0p_rpa_ueg)
-        push!(F0p_fp_vs_rs_ueg, F0p_fp_ueg)
-        push!(F0p_fp_fm_vs_rs_ueg, F0p_fp_fm_ueg)
-        # push!(F1p_rpa_vs_rs, F1p_rpa)
-        # push!(F1p_fp_vs_rs, F1p_fp)
-        # push!(F1p_fp_fm_vs_rs, F1p_fp_fm)
-        push!(F1p_rpa_vs_rs_ueg, F1p_rpa_ueg)
-        push!(F1p_fp_vs_rs_ueg, F1p_fp_ueg)
-        push!(F1p_fp_fm_vs_rs_ueg, F1p_fp_fm_ueg)
+        # Constant Fs and Fa
+        meff_RPA_C, meff_KOp_C, meff_KO_C = get_meff_ElectronGas(param; int_type=:ko_const)
+        push!(meffs_RPA_C, meff_RPA_C)
+        push!(meffs_KOp_C, meff_KOp_C)
+        push!(meffs_KO_C, meff_KO_C)
+        # Takada ansatz for Fs and Fa
+        meff_RPA_T, meff_KOp_T, meff_KO_T = get_meff_ElectronGas(param; int_type=:ko_takada)
+        push!(meffs_RPA_T, meff_RPA_T)
+        push!(meffs_KOp_T, meff_KOp_T)
+        push!(meffs_KO_T, meff_KO_T)
+        # Moroni fit for Fs and Simion and Giuliani ansatz for Fa
+        meff_RPA_SG, meff_KOp_SG, meff_KO_SG =
+            get_meff_ElectronGas(param; int_type=:ko_simion_giuliani)
+        push!(meffs_RPA_SG, meff_RPA_SG)
+        push!(meffs_KOp_SG, meff_KOp_SG)
+        push!(meffs_KO_SG, meff_KO_SG)
+        println("done!")
+        println("RPA: m*/m = $(meff_RPA_C)")
     end
-
-    # Add points at rs = 0
-    pushfirst!(rslist, 0.0)
-    pushfirst!(Fp_vs_rs, 0.0)
-    # pushfirst!(F0p_rpa_vs_rs, 0.0)
-    # pushfirst!(F0p_fp_vs_rs, 0.0)
-    # pushfirst!(F0p_fp_fm_vs_rs, 0.0)
-    pushfirst!(F0p_rpa_vs_rs_ueg, 0.0)
-    pushfirst!(F0p_fp_vs_rs_ueg, 0.0)
-    pushfirst!(F0p_fp_fm_vs_rs_ueg, 0.0)
-    # pushfirst!(F1p_rpa_vs_rs, 0.0)
-    # pushfirst!(F1p_fp_vs_rs, 0.0)
-    # pushfirst!(F1p_fp_fm_vs_rs, 0.0)
-    pushfirst!(F1p_rpa_vs_rs_ueg, 0.0)
-    pushfirst!(F1p_fp_vs_rs_ueg, 0.0)
-    pushfirst!(F1p_fp_fm_vs_rs_ueg, 0.0)
 
     color = [
         [cdict["orange"], cdict["magenta"], cdict["red"]],
@@ -559,102 +526,293 @@ function main()
         [cdict["blue"], cdict["cyan"], cdict["teal"]],
     ]
 
-    function plot_mvsrs(rs, meff_data, color, label, ls="-"; ax1=plt.gca(), zorder=nothing)
-        # mfitfunc = interp.PchipInterpolator(rs, meff_data)
-        mfitfunc = interp.Akima1DInterpolator(rs, meff_data)
+    function plot_vs_rs(
+        rslist,
+        data,
+        color,
+        label,
+        ls="-";
+        ax1=plt.gca(),
+        zorder=nothing,
+        data_rs0=0.0,
+        rs_HDL=nothing,
+        meff_HDL=nothing,
+    )
+        # Add point at rs = 0
+        rslist = unique([0.0; rslist])
+        data = unique([data_rs0; data])
+
+        # Add data in the high-density limit to the fit, if provided
+        if !isnothing(rs_HDL) && !isnothing(meff_HDL)
+            rslist = unique([rslist; rs_HDL])
+            data = unique([data; meff_HDL])
+        end
+
+        # Re-sort the data after adding the high-density limit data
+        P = sortperm(rslist)
+        rslist = rslist[P]
+        data = data[P]
+
+        # Plot splined data vs rs
+        fitfunc = interp.Akima1DInterpolator(rslist, data)
+        # fitfunc = interp.PchipInterpolator(rslist, data)
         xgrid = np.arange(0, maximum(rslist) + 0.2, 0.01)
-        # xgrid = np.arange(0, 6.2, 0.01)
-        # ax1.scatter(rs, meff_data; color=color, marker="o")
         if isnothing(zorder)
-            handle, = ax1.plot(xgrid, mfitfunc(xgrid); ls=ls, color=color, label=label)
+            handle, = ax1.plot(xgrid, fitfunc(xgrid); ls=ls, color=color, label=label)
         else
             handle, = ax1.plot(
                 xgrid,
-                mfitfunc(xgrid);
+                fitfunc(xgrid);
                 ls=ls,
                 color=color,
                 label=label,
                 zorder=zorder,
             )
         end
-        yfit = np.ma.masked_invalid(mfitfunc(xgrid))
-        # print(yfit)
-        # print("Turning point: rs = ", xgrid[np.argmin(yfit)])
-        # print("Effective mass ratio at turning point: ", np.min(yfit))
         return handle
     end
+
+    # High-density limit of the effective mass
+    rs_HDL_plot = collect(range(1e-5, 0.35, 101))
+    meff_HDL_plot = [high_density_limit(rs) for rs in rs_HDL_plot]
+
+    # Use exact expression in the high-density limit for all effective mass fits
+    cutoff_HDL = 0.1
+    rs_HDL = rs_HDL_plot[rs_HDL_plot .≤ cutoff_HDL]
+    meff_HDL = meff_HDL_plot[rs_HDL_plot .≤ cutoff_HDL]
+
+    # Plot meff comparisons vs rs
+    fig1 = figure(; figsize=(6, 6))
+    ax1 = fig1.add_subplot(111)
+
+    # RPA effective mass from Dyson self-energy
+    plot_vs_rs(
+        rslist_small,
+        meffs_RPA_C,
+        cdict["orange"],
+        "\$W_0\$",
+        "-";
+        data_rs0=1.0,
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+    )
+    plot_vs_rs(
+        rslist_small,
+        meffs_RPA_T,
+        cdict["orange"],
+        nothing,
+        "--";
+        data_rs0=1.0,
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+    )
+    plot_vs_rs(
+        rslist_small,
+        meffs_RPA_SG,
+        cdict["orange"],
+        nothing,
+        "-.";
+        data_rs0=1.0,
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+    )
+
+    # KOp effective mass from Dyson self-energy
+    plot_vs_rs(
+        rslist_small,
+        meffs_KOp_C,
+        cdict["blue"],
+        "\$W^\\text{KO}_{0,+}\$",
+        "-";
+        data_rs0=1.0,
+    )
+    plot_vs_rs(
+        rslist_small,
+        meffs_KOp_T,
+        cdict["blue"],
+        nothing,
+        "--";
+        data_rs0=1.0,
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+    )
+    plot_vs_rs(
+        rslist_small,
+        meffs_KOp_SG,
+        cdict["blue"],
+        nothing,
+        "-.";
+        data_rs0=1.0,
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+    )
+
+    # KO effective mass from Dyson self-energy
+    plot_vs_rs(
+        rslist_small,
+        meffs_KO_C,
+        cdict["magenta"],
+        "\$W^\\text{KO}_{0}\$",
+        "-";
+        data_rs0=1.0,
+    )
+    plot_vs_rs(
+        rslist_small,
+        meffs_KO_T,
+        cdict["magenta"],
+        nothing,
+        "--";
+        data_rs0=1.0,
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+    )
+    plot_vs_rs(
+        rslist_small,
+        meffs_KO_SG,
+        cdict["magenta"],
+        nothing,
+        "-.";
+        data_rs0=1.0,
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+    )
+
+    legend(; loc="best", fontsize=10)
+    ylabel("\$\\left(m^*/m\\right)_D\$")
+    xlabel("\$r_s\$")
+    ylim(0.905, 1.2)
+    xlim(0, 7)
+    tight_layout()
+    savefig("meff_int_type_comparisons_Fs_Fa_$(signstr_Fsa).pdf")
+
+    # return
+
+    F0ps_RPA_EG = []
+    F0ps_KOp_EG = []
+    F0ps_KO_EG = []
+    F1ps_RPA_EG = []
+    F1ps_KOp_EG = []
+    F1ps_KO_EG = []
+    if int_type == :ko_const
+        F0ps_RPA_EL = []
+        F0ps_KOp_EL = []
+        F0ps_KO_EL = []
+        F1ps_RPA_EL = []
+        F1ps_KOp_EL = []
+        F1ps_KO_EL = []
+    end
+    for rs in rslist
+        print("Computing Fermi liquid parameters for rs = $(rs)...")
+        param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
+        # Use ElectronGas.jl to compute the Fermi liquid parameters
+        F0p_RPA_EG, F0p_KOp_EG, F0p_KO_EG =
+            get_tree_level_Flp_ElectronGas(0, param; int_type=int_type)
+        F1p_RPA_EG, F1p_KOp_EG, F1p_KO_EG =
+            get_tree_level_Flp_ElectronGas(1, param; int_type=int_type)
+        push!(F0ps_RPA_EG, F0p_RPA_EG)
+        push!(F0ps_KOp_EG, F0p_KOp_EG)
+        push!(F0ps_KO_EG, F0p_KO_EG)
+        push!(F1ps_RPA_EG, F1p_RPA_EG)
+        push!(F1ps_KOp_EG, F1p_KOp_EG)
+        push!(F1ps_KO_EG, F1p_KO_EG)
+        # Use ElectronGas.jl to compute the Fermi liquid parameters (requires int_type == :ko_const)
+        if int_type == :ko_const
+            F0p_RPA_EL, F0p_KOp_EL, F0p_KO_EL = get_tree_level_Flp_ElectronLiquid(0, param)
+            F1p_RPA_EL, F1p_KOp_EL, F1p_KO_EL = get_tree_level_Flp_ElectronLiquid(1, param)
+            push!(F0ps_RPA_EL, F0p_RPA_EL)
+            push!(F0ps_KOp_EL, F0p_KOp_EL)
+            push!(F0ps_KO_EL, F0p_KO_EL)
+            push!(F1ps_RPA_EL, F1p_RPA_EL)
+            push!(F1ps_KOp_EL, F1p_KOp_EL)
+            push!(F1ps_KO_EL, F1p_KO_EL)
+        end
+        println("done!")
+    end
+
+    # Plot F0 comparisons vs rs
+
+    # Plot F1 comparisons vs rs
+
+    # return
 
     # Plot F0 vs rs
     fig1 = figure(; figsize=(6, 6))
     ax1 = fig1.add_subplot(111)
 
-    # Fsull F^+(rs)
+    # Full F^+(rs)
     labelstr =
         sign_Fsa > 0 ? "\$-F^+ = \\kappa_0 / \\kappa - 1\$" :
         "\$F^+ = \\kappa_0 / \\kappa - 1\$"
-    plot_mvsrs(rslist, -sign_Fsa * Fp_vs_rs, cdict["grey"], labelstr, "-")
+    plot_vs_rs(rslist, sign_Fsa * get_Fs_PW.(rslist), cdict["grey"], labelstr, "-")
+    plot_vs_rs(
+        rslist,
+        sign_Fsa * get_Fs_PW.(rslist) .+ 0.1349,
+        cdict["grey"],
+        nothing,
+        "--",
+    )
 
     # Tree-level RPA
-    plot_mvsrs(rslist, F0p_rpa_vs_rs_ueg, cdict["orange"], "\$W_0\$", "-")
-    plot_mvsrs(rslist, F0p_RPA, cdict["orange"], nothing, "--")
-    # plot_mvsrs(rslist, F0p_rpa_vs_rs, cdict["orange"], "\$W_0\$", "-")
-    # plot_mvsrs(rslist, F0p_rpa_vs_rs_ueg, cdict["blue"], "\$W_0\$ (NEFT)", "--")
+    plot_vs_rs(rslist, F0ps_RPA_EG, cdict["orange"], "\$W_0\$", "-")
+    if int_type == :ko_const
+        plot_vs_rs(rslist, F0ps_RPA_EL, cdict["orange"], nothing, "--")
+    end
+    plot_vs_rs(rslist, F0ps_RPA_A, cdict["orange"], nothing, "-.")
 
     # Tree-level KO with fp only
-    plot_mvsrs(rslist, F0p_fp_vs_rs_ueg, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
-    plot_mvsrs(rslist, F0p_KOp, cdict["blue"], nothing, "--")
-    # plot_mvsrs(rslist, F0p_fp_vs_rs, cdict["red"], "\$W^\\text{KO}_{0,+}\$", "-")
-    # plot_mvsrs(rslist, F0p_fp_vs_rs_ueg, cdict["teal"], "\$W^\\text{KO}_{0,+}\$ (NEFT)", "--")
+    plot_vs_rs(rslist, F0ps_KOp_EG, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
+    if int_type == :ko_const
+        plot_vs_rs(rslist, F0ps_KOp_EL, cdict["blue"], nothing, "--")
+    end
+    plot_vs_rs(rslist, F0ps_KOp_A, cdict["blue"], nothing, "-.")
 
     # Tree-level KO with fp and fm
-    plot_mvsrs(rslist, F0p_fp_fm_vs_rs_ueg, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
-    plot_mvsrs(rslist, F0p_KO, cdict["magenta"], nothing, "--")
-    # plot_mvsrs(rslist, F0p_fp_fm_vs_rs, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
-    # plot_mvsrs(rslist, F0p_fp_fm_vs_rs_ueg, cdict["magenta"], "\$W^\\text{KO}_{0}\$ (NEFT)", "--")
+    plot_vs_rs(rslist, F0ps_KO_EG, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
+    if int_type == :ko_const
+        plot_vs_rs(rslist, F0ps_KO_EL, cdict["magenta"], nothing, "--")
+    end
+    plot_vs_rs(rslist, F0ps_KO_A, cdict["magenta"], nothing, "-.")
 
     legend(; loc="best", fontsize=10)
     ylabel("\$F^+_{0,t}\$")
-    # ylabel("\$F^+_0 \\approx \\langle W(k + k^\\prime - q) \\rangle_\\text{F.S.}\$")
-    # ylabel("\$m^* / m\$")
     xlabel("\$r_s\$")
     # ylim(-0.056, 0.034)
     # ylim(-1.1, 0.6)
     tight_layout()
-    savefig("F0p_comparisons_ko_const_Fs_Fa_$(signstr_Fsa).pdf")
-    # savefig("F1p_comparisons_ko_takada.pdf")
-    # savefig("F1p_comparisons_ko_simion_giuliani.pdf")
+    savefig("F0p_comparisons_$(signstr_Fsa)_$(int_type).pdf")
 
     # Plot F1 vs rs
     fig1 = figure(; figsize=(6, 6))
     ax1 = fig1.add_subplot(111)
 
     # Tree-level RPA
-    plot_mvsrs(rslist, F1p_rpa_vs_rs_ueg, cdict["orange"], "\$W_0\$", "-")
-    plot_mvsrs(rslist, F1p_RPA, cdict["orange"], nothing, "--")
-    # plot_mvsrs(rslist, F1p_rpa_vs_rs_ueg, cdict["blue"], "\$W_0\$ (NEFT)", "--")
+    plot_vs_rs(rslist, F1ps_RPA_EG, cdict["orange"], "\$W_0\$", "-")
+    if int_type == :ko_const
+        plot_vs_rs(rslist, F1ps_RPA_EL, cdict["orange"], nothing, "--")
+    end
+    plot_vs_rs(rslist, F1ps_RPA_A, cdict["orange"], nothing, "-.")
 
     # Tree-level KO with fp only
-    plot_mvsrs(rslist, F1p_fp_vs_rs_ueg, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
-    plot_mvsrs(rslist, F1p_KOp, cdict["blue"], nothing, "--")
-    # plot_mvsrs(rslist, F1p_fp_vs_rs_ueg, cdict["teal"], "\$W^\\text{KO}_{0,+}\$ (NEFT)", "--")
+    plot_vs_rs(rslist, F1ps_KOp_EG, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
+    if int_type == :ko_const
+        plot_vs_rs(rslist, F1ps_KOp_EL, cdict["blue"], nothing, "--")
+    end
+    plot_vs_rs(rslist, F1ps_KOp_A, cdict["blue"], nothing, "-.")
 
     # Tree-level KO with fp and fm
-    plot_mvsrs(rslist, F1p_fp_fm_vs_rs_ueg, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
-    plot_mvsrs(rslist, F1p_KO, cdict["magenta"], nothing, "--")
-    # plot_mvsrs(rslist, F1p_fp_fm_vs_rs_ueg, cdict["magenta"], "\$W^\\text{KO}_{0}\$ (NEFT)", "--")
+    plot_vs_rs(rslist, F1ps_KO_EG, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
+    if int_type == :ko_const
+        plot_vs_rs(rslist, F1ps_KO_EL, cdict["magenta"], nothing, "--")
+    end
+    plot_vs_rs(rslist, F1ps_KO_A, cdict["magenta"], nothing, "-.")
 
     legend(; loc="best", fontsize=10)
     ylabel("\$F^+_{1,t}\$")
-    # ylabel(
-    #     "\$F^+_1 \\approx \\langle W(k + k^\\prime - q) \\cos\\theta_{k,k^\\prime}\\rangle_\\text{F.S.}\$",
-    # )
     xlabel("\$r_s\$")
     # ylim(-0.056, 0.034)
     # ylim(-0.072, 0.034)
     tight_layout()
-    savefig("F1p_comparisons_ko_const_Fs_Fa_$(signstr_Fsa).pdf")
-    # savefig("F1p_comparisons_ko_takada.pdf")
-    # savefig("F1p_comparisons_ko_simion_giuliani.pdf")
+    savefig("F1p_comparisons_$(signstr_Fsa)_$(int_type).pdf")
     return
 end
 
