@@ -229,16 +229,16 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
         push!(F0p_RPA, val_RPA)
         # KO+
         y_KOp = [integrand_F0p(x, rs * alpha_ueg / π, Fs) for x in xgrid]
-        val_KOp = (Fs / 2) + CompositeGrids.Interp.integrate1D(y_KOp, xgrid)
+        val_KOp = Fs + CompositeGrids.Interp.integrate1D(y_KOp, xgrid)
         push!(F0p_KOp, val_KOp)
         # KO-
         y_KOm = [integrand_F0m(x, Fa) for x in xgrid]
-        val_KOm = (Fa / 2) + CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
+        val_KOm = Fa + CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
         push!(F0p_KOm, val_KOm)
         # KO
         Fse = (Fs + 3 * Fa)
         y_KO = [integrand_F0(x, rs * alpha_ueg / π, Fs, Fa) for x in xgrid]
-        val_KO = (Fse / 2) + CompositeGrids.Interp.integrate1D(y_KO, xgrid)
+        val_KO = Fse + CompositeGrids.Interp.integrate1D(y_KO, xgrid)
         push!(F0p_KO, val_KO)
     end
     if plot
@@ -257,7 +257,7 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
             "\$F^+ = \\kappa_0 / \\kappa - 1\$"
         ax.plot(
             rslist,
-            sign_Fsa * get_Fs_PW.(rslist) / 2;
+            sign_Fsa * get_Fs_PW.(rslist);
             color=cdict["grey"],
             label=labelstr,
             zorder=-1,
@@ -302,7 +302,6 @@ function get_analytic_F1p(rslist; plot=false, sign_Fsa=+1.0)
         val_KOm = CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
         push!(F1p_KOm, val_KOm)
         # KO
-        Fse = (Fs + 3 * Fa)
         y_KO = [integrand_F1(x, rs * alpha_ueg / π, Fs, Fa) for x in xgrid]
         val_KO = CompositeGrids.Interp.integrate1D(y_KO, xgrid)
         push!(F1p_KO, val_KO)
@@ -463,12 +462,52 @@ function get_meff_ElectronGas(param::Parameter.Para; int_type=:ko_const)
     return meff_RPA, meff_KOp, meff_KO
 end
 
+function plot_vs_rs(
+    rslist,
+    data,
+    color,
+    label,
+    ls="-";
+    ax=plt.gca(),
+    zorder=nothing,
+    data_rs0=0.0,
+    rs_HDL=nothing,
+    meff_HDL=nothing,
+)
+    # Add point at rs = 0
+    rslist = unique([0.0; rslist])
+    data = unique([data_rs0; data])
+
+    # Add data in the high-density limit to the fit, if provided
+    if !isnothing(rs_HDL) && !isnothing(meff_HDL)
+        rslist = unique([rslist; rs_HDL])
+        data = unique([data; meff_HDL])
+    end
+
+    # Re-sort the data after adding the high-density limit data
+    P = sortperm(rslist)
+    rslist = rslist[P]
+    data = data[P]
+
+    # Plot splined data vs rs
+    fitfunc = interp.Akima1DInterpolator(rslist, data)
+    # fitfunc = interp.PchipInterpolator(rslist, data)
+    xgrid = np.arange(0, maximum(rslist) + 0.2, 0.01)
+    if isnothing(zorder)
+        handle, = ax.plot(xgrid, fitfunc(xgrid); ls=ls, color=color, label=label)
+    else
+        handle, =
+            ax.plot(xgrid, fitfunc(xgrid); ls=ls, color=color, label=label, zorder=zorder)
+    end
+    return handle
+end
+
 function main()
     # UEG parameters
     beta = 1000.0
     dim = 3
     # int_type = :ko_const
-    int_type = :ko_simion_giuliani
+    # int_type = :ko_simion_giuliani
 
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
@@ -487,90 +526,144 @@ function main()
     F1ps_RPA_A, F1ps_KOp_A, F1ps_KO_A =
         get_analytic_F1p(rslist; plot=true, sign_Fsa=sign_Fsa)
 
-    meffs_RPA_C = []
-    meffs_KOp_C = []
-    meffs_KO_C = []
-    meffs_RPA_T = []
-    meffs_KOp_T = []
-    meffs_KO_T = []
-    meffs_RPA_SG = []
-    meffs_KOp_SG = []
-    meffs_KO_SG = []
-    rslist_small = sort(unique([0.125; rs_Fsm1; collect(range(0.25, 10.0; step=0.25))]))
-    for rs in rslist_small
-        print("Computing mass for rs = $(rs)...")
-        param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
-        # Constant Fs and Fa
-        meff_RPA_C, meff_KOp_C, meff_KO_C = get_meff_ElectronGas(param; int_type=:ko_const)
-        push!(meffs_RPA_C, meff_RPA_C)
-        push!(meffs_KOp_C, meff_KOp_C)
-        push!(meffs_KO_C, meff_KO_C)
-        # Takada ansatz for Fs and Fa
-        meff_RPA_T, meff_KOp_T, meff_KO_T = get_meff_ElectronGas(param; int_type=:ko_takada)
-        push!(meffs_RPA_T, meff_RPA_T)
-        push!(meffs_KOp_T, meff_KOp_T)
-        push!(meffs_KO_T, meff_KO_T)
-        # Moroni fit for Fs and Simion and Giuliani ansatz for Fa
-        meff_RPA_SG, meff_KOp_SG, meff_KO_SG =
-            get_meff_ElectronGas(param; int_type=:ko_simion_giuliani)
-        push!(meffs_RPA_SG, meff_RPA_SG)
-        push!(meffs_KOp_SG, meff_KOp_SG)
-        push!(meffs_KO_SG, meff_KO_SG)
-        println("done!")
-        println("RPA: m*/m = $(meff_RPA_C)")
+    # return
+
+    # load the npz data if it already exists
+    if isfile("meff_and_Flp_int_type_comparisons_Fs_Fa_$(signstr_Fsa).npz")
+        data = np.load("meff_and_Flp_int_type_comparisons_Fs_Fa_$(signstr_Fsa).npz")
+        rslist_small = data.get("rslist")
+        meffs_RPA_C = data.get("meffs_RPA_C")
+        meffs_KOp_C = data.get("meffs_KOp_C")
+        meffs_KO_C = data.get("meffs_KO_C")
+        meffs_RPA_T = data.get("meffs_RPA_T")
+        meffs_KOp_T = data.get("meffs_KOp_T")
+        meffs_KO_T = data.get("meffs_KO_T")
+        meffs_RPA_SG = data.get("meffs_RPA_SG")
+        meffs_KOp_SG = data.get("meffs_KOp_SG")
+        meffs_KO_SG = data.get("meffs_KO_SG")
+        F0ps_RPA_C = data.get("F0ps_RPA_C")
+        F0ps_KOp_C = data.get("F0ps_KOp_C")
+        F0ps_KO_C = data.get("F0ps_KO_C")
+        F0ps_RPA_T = data.get("F0ps_RPA_T")
+        F0ps_KOp_T = data.get("F0ps_KOp_T")
+        F0ps_KO_T = data.get("F0ps_KO_T")
+        F0ps_RPA_SG = data.get("F0ps_RPA_SG")
+        F0ps_KOp_SG = data.get("F0ps_KOp_SG")
+        F0ps_KO_SG = data.get("F0ps_KO_SG")
+        F1ps_RPA_C = data.get("F1ps_RPA_C")
+        F1ps_KOp_C = data.get("F1ps_KOp_C")
+        F1ps_KO_C = data.get("F1ps_KO_C")
+        F1ps_RPA_T = data.get("F1ps_RPA_T")
+        F1ps_KOp_T = data.get("F1ps_KOp_T")
+        F1ps_KO_T = data.get("F1ps_KO_T")
+        F1ps_RPA_SG = data.get("F1ps_RPA_SG")
+        F1ps_KOp_SG = data.get("F1ps_KOp_SG")
+        F1ps_KO_SG = data.get("F1ps_KO_SG")
+    else
+        meffs_RPA_C = []
+        meffs_KOp_C = []
+        meffs_KO_C = []
+        meffs_RPA_T = []
+        meffs_KOp_T = []
+        meffs_KO_T = []
+        meffs_RPA_SG = []
+        meffs_KOp_SG = []
+        meffs_KO_SG = []
+        rslist_small = sort(unique([0.125; rs_Fsm1; collect(range(0.25, 10.0; step=0.25))]))
+        for rs in rslist_small
+            print("Computing mass for rs = $(rs)...")
+            param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
+            # Constant Fs and Fa
+            meff_RPA_C, meff_KOp_C, meff_KO_C =
+                get_meff_ElectronGas(param; int_type=:ko_const)
+            push!(meffs_RPA_C, meff_RPA_C)
+            push!(meffs_KOp_C, meff_KOp_C)
+            push!(meffs_KO_C, meff_KO_C)
+            # Takada ansatz for Fs and Fa
+            meff_RPA_T, meff_KOp_T, meff_KO_T =
+                get_meff_ElectronGas(param; int_type=:ko_takada)
+            push!(meffs_RPA_T, meff_RPA_T)
+            push!(meffs_KOp_T, meff_KOp_T)
+            push!(meffs_KO_T, meff_KO_T)
+            # Moroni fit for Fs and Simion and Giuliani ansatz for Fa
+            meff_RPA_SG, meff_KOp_SG, meff_KO_SG =
+                get_meff_ElectronGas(param; int_type=:ko_simion_giuliani)
+            push!(meffs_RPA_SG, meff_RPA_SG)
+            push!(meffs_KOp_SG, meff_KOp_SG)
+            push!(meffs_KO_SG, meff_KO_SG)
+            println("done!")
+            println("RPA: m*/m = $(meff_RPA_C)")
+        end
+        F0ps_RPA_C = []
+        F0ps_KOp_C = []
+        F0ps_KO_C = []
+        F0ps_RPA_T = []
+        F0ps_KOp_T = []
+        F0ps_KO_T = []
+        F0ps_RPA_SG = []
+        F0ps_KOp_SG = []
+        F0ps_KO_SG = []
+        F1ps_RPA_C = []
+        F1ps_KOp_C = []
+        F1ps_KO_C = []
+        F1ps_RPA_T = []
+        F1ps_KOp_T = []
+        F1ps_KO_T = []
+        F1ps_RPA_SG = []
+        F1ps_KOp_SG = []
+        F1ps_KO_SG = []
+        for rs in rslist
+            print("Computing Fermi liquid parameters for rs = $(rs)...")
+            param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
+
+            # Constant Fs and Fa
+            # F0p
+            F0p_RPA_C, F0p_KOp_C, F0p_KO_C =
+                get_tree_level_Flp_ElectronGas(0, param; int_type=:ko_const)
+            push!(F0ps_RPA_C, F0p_RPA_C)
+            push!(F0ps_KOp_C, F0p_KOp_C)
+            push!(F0ps_KO_C, F0p_KO_C)
+            # F1p
+            F1p_RPA_C, F1p_KOp_C, F1p_KO_C =
+                get_tree_level_Flp_ElectronGas(1, param; int_type=:ko_const)
+            push!(F1ps_RPA_C, F1p_RPA_C)
+            push!(F1ps_KOp_C, F1p_KOp_C)
+            push!(F1ps_KO_C, F1p_KO_C)
+
+            # Takada ansatz for Fs and Fa
+            # F0p
+            F0p_RPA_T, F0p_KOp_T, F0p_KO_T =
+                get_tree_level_Flp_ElectronGas(0, param; int_type=:ko_takada)
+            push!(F0ps_RPA_T, F0p_RPA_T)
+            push!(F0ps_KOp_T, F0p_KOp_T)
+            push!(F0ps_KO_T, F0p_KO_T)
+            # F1p
+            F1p_RPA_T, F1p_KOp_T, F1p_KO_T =
+                get_tree_level_Flp_ElectronGas(1, param; int_type=:ko_takada)
+            push!(F1ps_RPA_T, F1p_RPA_T)
+            push!(F1ps_KOp_T, F1p_KOp_T)
+            push!(F1ps_KO_T, F1p_KO_T)
+
+            # Moroni fit for Fs and Simion and Giuliani ansatz for Fa
+            # F0p
+            F0p_RPA_SG, F0p_KOp_SG, F0p_KO_SG =
+                get_tree_level_Flp_ElectronGas(0, param; int_type=:ko_simion_giuliani)
+            push!(F0ps_RPA_SG, F0p_RPA_SG)
+            push!(F0ps_KOp_SG, F0p_KOp_SG)
+            push!(F0ps_KO_SG, F0p_KO_SG)
+            # F1p
+            F1p_RPA_SG, F1p_KOp_SG, F1p_KO_SG =
+                get_tree_level_Flp_ElectronGas(1, param; int_type=:ko_simion_giuliani)
+            push!(F1ps_RPA_SG, F1p_RPA_SG)
+            push!(F1ps_KOp_SG, F1p_KOp_SG)
+            push!(F1ps_KO_SG, F1p_KO_SG)
+            println("done!")
+        end
     end
 
-    color = [
-        [cdict["orange"], cdict["magenta"], cdict["red"]],
-        [cdict["blue"], cdict["cyan"], cdict["teal"]],
-        [cdict["blue"], cdict["cyan"], cdict["teal"]],
-    ]
-
-    function plot_vs_rs(
-        rslist,
-        data,
-        color,
-        label,
-        ls="-";
-        ax1=plt.gca(),
-        zorder=nothing,
-        data_rs0=0.0,
-        rs_HDL=nothing,
-        meff_HDL=nothing,
-    )
-        # Add point at rs = 0
-        rslist = unique([0.0; rslist])
-        data = unique([data_rs0; data])
-
-        # Add data in the high-density limit to the fit, if provided
-        if !isnothing(rs_HDL) && !isnothing(meff_HDL)
-            rslist = unique([rslist; rs_HDL])
-            data = unique([data; meff_HDL])
-        end
-
-        # Re-sort the data after adding the high-density limit data
-        P = sortperm(rslist)
-        rslist = rslist[P]
-        data = data[P]
-
-        # Plot splined data vs rs
-        fitfunc = interp.Akima1DInterpolator(rslist, data)
-        # fitfunc = interp.PchipInterpolator(rslist, data)
-        xgrid = np.arange(0, maximum(rslist) + 0.2, 0.01)
-        if isnothing(zorder)
-            handle, = ax1.plot(xgrid, fitfunc(xgrid); ls=ls, color=color, label=label)
-        else
-            handle, = ax1.plot(
-                xgrid,
-                fitfunc(xgrid);
-                ls=ls,
-                color=color,
-                label=label,
-                zorder=zorder,
-            )
-        end
-        return handle
-    end
+    ###############################
+    # Plot meff comparisons vs rs #
+    ###############################
 
     # High-density limit of the effective mass
     rs_HDL_plot = collect(range(1e-5, 0.35, 101))
@@ -581,7 +674,6 @@ function main()
     rs_HDL = rs_HDL_plot[rs_HDL_plot .≤ cutoff_HDL]
     meff_HDL = meff_HDL_plot[rs_HDL_plot .≤ cutoff_HDL]
 
-    # Plot meff comparisons vs rs
     fig1 = figure(; figsize=(6, 6))
     ax1 = fig1.add_subplot(111)
 
@@ -678,141 +770,159 @@ function main()
     )
 
     legend(; loc="best", fontsize=10)
-    ylabel("\$\\left(m^*/m\\right)_D\$")
+    ylabel("\$m^*/m\$")
     xlabel("\$r_s\$")
     ylim(0.905, 1.2)
-    xlim(0, 7)
+    xlim(0, 10)
     tight_layout()
     savefig("meff_int_type_comparisons_Fs_Fa_$(signstr_Fsa).pdf")
 
-    # return
+    ##############################
+    # Plot Flp comparisons vs rs #
+    ##############################
 
-    F0ps_RPA_EG = []
-    F0ps_KOp_EG = []
-    F0ps_KO_EG = []
-    F1ps_RPA_EG = []
-    F1ps_KOp_EG = []
-    F1ps_KO_EG = []
-    if int_type == :ko_const
-        F0ps_RPA_EL = []
-        F0ps_KOp_EL = []
-        F0ps_KO_EL = []
-        F1ps_RPA_EL = []
-        F1ps_KOp_EL = []
-        F1ps_KO_EL = []
-    end
-    for rs in rslist
-        print("Computing Fermi liquid parameters for rs = $(rs)...")
-        param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
-        # Use ElectronGas.jl to compute the Fermi liquid parameters
-        F0p_RPA_EG, F0p_KOp_EG, F0p_KO_EG =
-            get_tree_level_Flp_ElectronGas(0, param; int_type=int_type)
-        F1p_RPA_EG, F1p_KOp_EG, F1p_KO_EG =
-            get_tree_level_Flp_ElectronGas(1, param; int_type=int_type)
-        push!(F0ps_RPA_EG, F0p_RPA_EG)
-        push!(F0ps_KOp_EG, F0p_KOp_EG)
-        push!(F0ps_KO_EG, F0p_KO_EG)
-        push!(F1ps_RPA_EG, F1p_RPA_EG)
-        push!(F1ps_KOp_EG, F1p_KOp_EG)
-        push!(F1ps_KO_EG, F1p_KO_EG)
-        # Use ElectronGas.jl to compute the Fermi liquid parameters (requires int_type == :ko_const)
-        if int_type == :ko_const
-            F0p_RPA_EL, F0p_KOp_EL, F0p_KO_EL = get_tree_level_Flp_ElectronLiquid(0, param)
-            F1p_RPA_EL, F1p_KOp_EL, F1p_KO_EL = get_tree_level_Flp_ElectronLiquid(1, param)
-            push!(F0ps_RPA_EL, F0p_RPA_EL)
-            push!(F0ps_KOp_EL, F0p_KOp_EL)
-            push!(F0ps_KO_EL, F0p_KO_EL)
-            push!(F1ps_RPA_EL, F1p_RPA_EL)
-            push!(F1ps_KOp_EL, F1p_KOp_EL)
-            push!(F1ps_KO_EL, F1p_KO_EL)
-        end
-        println("done!")
-    end
-
-    # Plot F0 comparisons vs rs
-
-    # Plot F1 comparisons vs rs
-
-    # return
-
-    # Plot F0 vs rs
-    fig1 = figure(; figsize=(6, 6))
-    ax1 = fig1.add_subplot(111)
+    fig2 = figure(; figsize=(6, 6))
+    ax2 = fig2.add_subplot(111)
 
     # Full F^+(rs)
     labelstr =
         sign_Fsa > 0 ? "\$-F^+ = \\kappa_0 / \\kappa - 1\$" :
         "\$F^+ = \\kappa_0 / \\kappa - 1\$"
     plot_vs_rs(rslist, sign_Fsa * get_Fs_PW.(rslist), cdict["grey"], labelstr, "-")
-    plot_vs_rs(
-        rslist,
-        sign_Fsa * get_Fs_PW.(rslist) .+ 0.1349,
-        cdict["grey"],
-        nothing,
-        "--",
-    )
 
     # Tree-level RPA
-    plot_vs_rs(rslist, F0ps_RPA_EG, cdict["orange"], "\$W_0\$", "-")
-    if int_type == :ko_const
-        plot_vs_rs(rslist, F0ps_RPA_EL, cdict["orange"], nothing, "--")
-    end
-    plot_vs_rs(rslist, F0ps_RPA_A, cdict["orange"], nothing, "-.")
+    plot_vs_rs(rslist, F0ps_RPA_C, cdict["orange"], "\$W_0\$", "-")
+    plot_vs_rs(rslist, F0ps_RPA_T, cdict["orange"], nothing, "--")
+    plot_vs_rs(rslist, F0ps_RPA_SG, cdict["orange"], nothing, "-.")
 
     # Tree-level KO with fp only
-    plot_vs_rs(rslist, F0ps_KOp_EG, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
-    if int_type == :ko_const
-        plot_vs_rs(rslist, F0ps_KOp_EL, cdict["blue"], nothing, "--")
-    end
-    plot_vs_rs(rslist, F0ps_KOp_A, cdict["blue"], nothing, "-.")
+    plot_vs_rs(rslist, F0ps_KOp_C, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
+    plot_vs_rs(rslist, F0ps_KOp_T, cdict["blue"], nothing, "--")
+    plot_vs_rs(rslist, F0ps_KOp_SG, cdict["blue"], nothing, "-.")
 
     # Tree-level KO with fp and fm
-    plot_vs_rs(rslist, F0ps_KO_EG, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
-    if int_type == :ko_const
-        plot_vs_rs(rslist, F0ps_KO_EL, cdict["magenta"], nothing, "--")
-    end
-    plot_vs_rs(rslist, F0ps_KO_A, cdict["magenta"], nothing, "-.")
+    plot_vs_rs(rslist, F0ps_KO_C, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
+    plot_vs_rs(rslist, F0ps_KO_T, cdict["magenta"], nothing, "--")
+    plot_vs_rs(rslist, F0ps_KO_SG, cdict["magenta"], nothing, "-.")
 
     legend(; loc="best", fontsize=10)
     ylabel("\$F^+_{0,t}\$")
     xlabel("\$r_s\$")
     # ylim(-0.056, 0.034)
     # ylim(-1.1, 0.6)
+    xlim(0, 10)
     tight_layout()
-    savefig("F0p_comparisons_$(signstr_Fsa)_$(int_type).pdf")
+    savefig("F0p_int_type_comparisons_Fs_Fa_$(signstr_Fsa).pdf")
 
-    # Plot F1 vs rs
-    fig1 = figure(; figsize=(6, 6))
-    ax1 = fig1.add_subplot(111)
+    fig3 = figure(; figsize=(6, 6))
+    ax3 = fig3.add_subplot(111)
 
     # Tree-level RPA
-    plot_vs_rs(rslist, F1ps_RPA_EG, cdict["orange"], "\$W_0\$", "-")
-    if int_type == :ko_const
-        plot_vs_rs(rslist, F1ps_RPA_EL, cdict["orange"], nothing, "--")
-    end
-    plot_vs_rs(rslist, F1ps_RPA_A, cdict["orange"], nothing, "-.")
+    plot_vs_rs(rslist, F1ps_RPA_C, cdict["orange"], "\$W_0\$", "-")
+    plot_vs_rs(rslist, F1ps_RPA_T, cdict["orange"], nothing, "--")
+    plot_vs_rs(rslist, F1ps_RPA_SG, cdict["orange"], nothing, "-.")
 
     # Tree-level KO with fp only
-    plot_vs_rs(rslist, F1ps_KOp_EG, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
-    if int_type == :ko_const
-        plot_vs_rs(rslist, F1ps_KOp_EL, cdict["blue"], nothing, "--")
-    end
-    plot_vs_rs(rslist, F1ps_KOp_A, cdict["blue"], nothing, "-.")
+    plot_vs_rs(rslist, F1ps_KOp_C, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
+    plot_vs_rs(rslist, F1ps_KOp_T, cdict["blue"], nothing, "--")
+    plot_vs_rs(rslist, F1ps_KOp_SG, cdict["blue"], nothing, "-.")
 
     # Tree-level KO with fp and fm
-    plot_vs_rs(rslist, F1ps_KO_EG, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
-    if int_type == :ko_const
-        plot_vs_rs(rslist, F1ps_KO_EL, cdict["magenta"], nothing, "--")
-    end
-    plot_vs_rs(rslist, F1ps_KO_A, cdict["magenta"], nothing, "-.")
+    plot_vs_rs(rslist, F1ps_KO_C, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
+    plot_vs_rs(rslist, F1ps_KO_T, cdict["magenta"], nothing, "--")
+    plot_vs_rs(rslist, F1ps_KO_SG, cdict["magenta"], nothing, "-.")
 
     legend(; loc="best", fontsize=10)
     ylabel("\$F^+_{1,t}\$")
     xlabel("\$r_s\$")
     # ylim(-0.056, 0.034)
     # ylim(-0.072, 0.034)
+    xlim(0, 10)
     tight_layout()
-    savefig("F1p_comparisons_$(signstr_Fsa)_$(int_type).pdf")
+    savefig("F1p_int_type_comparisons_Fs_Fa_$(signstr_Fsa).pdf")
+
+    if isfile("meff_and_Flp_int_type_comparisons_Fs_Fa_$(signstr_Fsa).npz") == false
+        np.savez(
+            "meff_and_Flp_int_type_comparisons_Fs_Fa_$(signstr_Fsa).npz";
+            # rslist_Flp=rslist,
+            # rslist_meff=rslist_small,
+            rslist=rslist_small,
+            meffs_RPA_C=meffs_RPA_C,
+            meffs_KOp_C=meffs_KOp_C,
+            meffs_KO_C=meffs_KO_C,
+            meffs_RPA_T=meffs_RPA_T,
+            meffs_KOp_T=meffs_KOp_T,
+            meffs_KO_T=meffs_KO_T,
+            meffs_RPA_SG=meffs_RPA_SG,
+            meffs_KOp_SG=meffs_KOp_SG,
+            meffs_KO_SG=meffs_KO_SG,
+            F0ps_RPA_C=F0ps_RPA_C,
+            F0ps_KOp_C=F0ps_KOp_C,
+            F0ps_KO_C=F0ps_KO_C,
+            F0ps_RPA_T=F0ps_RPA_T,
+            F0ps_KOp_T=F0ps_KOp_T,
+            F0ps_KO_T=F0ps_KO_T,
+            F0ps_RPA_SG=F0ps_RPA_SG,
+            F0ps_KOp_SG=F0ps_KOp_SG,
+            F0ps_KO_SG=F0ps_KO_SG,
+            F1ps_RPA_C=F1ps_RPA_C,
+            F1ps_KOp_C=F1ps_KOp_C,
+            F1ps_KO_C=F1ps_KO_C,
+            F1ps_RPA_T=F1ps_RPA_T,
+            F1ps_KOp_T=F1ps_KOp_T,
+            F1ps_KO_T=F1ps_KO_T,
+            F1ps_RPA_SG=F1ps_RPA_SG,
+            F1ps_KOp_SG=F1ps_KOp_SG,
+            F1ps_KO_SG=F1ps_KO_SG,
+        )
+    end
+
+    ########################################
+    # Benchmark Flp against ElectronLiquid #
+    ########################################
+
+    # F0ps_RPA_EG = []
+    # F0ps_KOp_EG = []
+    # F0ps_KO_EG = []
+    # F1ps_RPA_EG = []
+    # F1ps_KOp_EG = []
+    # F1ps_KO_EG = []
+    # if int_type == :ko_const
+    #     F0ps_RPA_EL = []
+    #     F0ps_KOp_EL = []
+    #     F0ps_KO_EL = []
+    #     F1ps_RPA_EL = []
+    #     F1ps_KOp_EL = []
+    #     F1ps_KO_EL = []
+    # end
+    # for rs in rslist
+    #     print("Computing Fermi liquid parameters for rs = $(rs)...")
+    #     param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
+    #     # Use ElectronGas.jl to compute the Fermi liquid parameters
+    #     F0p_RPA_EG, F0p_KOp_EG, F0p_KO_EG =
+    #         get_tree_level_Flp_ElectronGas(0, param; int_type=int_type)
+    #     F1p_RPA_EG, F1p_KOp_EG, F1p_KO_EG =
+    #         get_tree_level_Flp_ElectronGas(1, param; int_type=int_type)
+    #     push!(F0ps_RPA_EG, F0p_RPA_EG)
+    #     push!(F0ps_KOp_EG, F0p_KOp_EG)
+    #     push!(F0ps_KO_EG, F0p_KO_EG)
+    #     push!(F1ps_RPA_EG, F1p_RPA_EG)
+    #     push!(F1ps_KOp_EG, F1p_KOp_EG)
+    #     push!(F1ps_KO_EG, F1p_KO_EG)
+    #     # Use ElectronGas.jl to compute the Fermi liquid parameters (requires int_type == :ko_const)
+    #     if int_type == :ko_const
+    #         F0p_RPA_EL, F0p_KOp_EL, F0p_KO_EL = get_tree_level_Flp_ElectronLiquid(0, param)
+    #         F1p_RPA_EL, F1p_KOp_EL, F1p_KO_EL = get_tree_level_Flp_ElectronLiquid(1, param)
+    #         push!(F0ps_RPA_EL, F0p_RPA_EL)
+    #         push!(F0ps_KOp_EL, F0p_KOp_EL)
+    #         push!(F0ps_KO_EL, F0p_KO_EL)
+    #         push!(F1ps_RPA_EL, F1p_RPA_EL)
+    #         push!(F1ps_KOp_EL, F1p_KOp_EL)
+    #         push!(F1ps_KO_EL, F1p_KO_EL)
+    #     end
+    #     println("done!")
+    # end
+
     return
 end
 
