@@ -27,6 +27,7 @@ const int_type_to_landaufunc = Dict(
 
 # Vibrant qualitative colour scheme from https://personal.sron.nl/~pault/
 const cdict = Dict([
+    "black" => "black",
     "orange" => "#EE7733",
     "blue" => "#0077BB",
     "cyan" => "#33BBEE",
@@ -115,7 +116,7 @@ end
 
 function integrand_F0p(x, rs_tilde, Fs=0.0)
     if isinf(rs_tilde)
-        return -x / lindhard(x)
+        return -2 * x / lindhard(x)
     end
     coeff = rs_tilde + Fs * x^2
     NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x))
@@ -143,17 +144,88 @@ function integrand_F1(x, rs_tilde, Fs=0.0, Fa=0.0)
     return integrand_F1p(x, rs_tilde, Fs) + 3 * integrand_F1m(x, Fa)
 end
 
-function plot_integrand_F0p(; sign_Fsa=+1.0)
-    rslist = [0, 1, 5, 10, Inf]
-    colorlist = [cdict["grey"], cdict["orange"], cdict["blue"], cdict["magenta"], "black"]
+function plot_Fermi_liquid_parameters(; rs=1.0, sign_Fsa=-1.0)
+    # Calculate Fa and Fa under various approximations
+    beta = 1000.0
+    param = Parameter.rydbergUnit(1.0 / beta, rs, 3)
+    @unpack kF, NF = param
+    Fs_C = sign_Fsa * get_Fs_PW(rs)
+    Fa_C = sign_Fsa * get_Fa_PW(rs)
+    if rs > 0.25
+        @assert Fs_C < 0 && Fa_C < 0 "Incorrect signs for Fs/Fa!"
+    end
+    Fs_T_list = []
+    Fa_T_list = []
+    Fs_SG_list = []
+    Fa_SG_list = []
+    qlist = np.linspace(1e-7 * kF, 4 * kF, 1000)
+    for q in qlist
+        fs_T, fa_T = Interaction.landauParameterTakada(q, 0, param)
+        fs_SG, fa_SG = Interaction.landauParameterSimionGiuliani(q, 0, param)
+        # ElectronLiquid.jl uses the opposite sign 
+        # convention to ElectronGas.jl for Fs/Fa!
+        push!(Fs_T_list, sign_Fsa * NF * fs_T)
+        push!(Fa_T_list, sign_Fsa * NF * fa_T)
+        push!(Fs_SG_list, sign_Fsa * NF * fs_SG)
+        push!(Fa_SG_list, sign_Fsa * NF * fa_SG)
+    end
+    fs_SG_inf, fa_SG_inf = Interaction.landauParameterSimionGiuliani(1e13, 0, param)
+    Fsa_SG_inf = sign_Fsa * NF * fs_SG_inf
+
+    # Plot Fs and Fa
+    fig = figure(; figsize=(6, 6))
+    ax = fig.add_subplot(111)
+    # Fs
+    Fs_labelstr = sign_Fsa < 0 ? "\$\\frac{\\kappa_0}{\\kappa} - 1\$" : "\$1 - \\frac{\\kappa_0}{\\kappa}\$"
+    # ax.plot(qlist / kF, Fs_T_list; color=cdict["orange"], label="\$F_+^\\text{T}(q)\$")
+    ax.plot(qlist / kF, Fs_SG_list; color=cdict["red"], label="\$F_+(q)\$")
+    ax.axhline(Fs_C; color=cdict["magenta"], label=Fs_labelstr, linestyle="--")
+    # Fa
+    Fa_labelstr = sign_Fsa < 0 ? "\$\\frac{\\chi_0}{\\chi} - 1\$" : "\$1 - \\frac{\\chi_0}{\\chi}\$"
+    # ax.plot(qlist / kF, Fa_T_list; color=cdict["teal"], label="\$F_-^\\text{T}(q)\$")
+    ax.plot(qlist / kF, Fa_SG_list; color=cdict["blue"], label="\$F_-(q)\$")
+    ax.axhline(Fa_C; color=cdict["cyan"], label=Fa_labelstr, linestyle="--")
+    ax.axhline(Fsa_SG_inf; color=cdict["black"], label="\$F_\\pm(\\infty)\$", linestyle="--")
+    ax.set_xlabel("\$q / k_F\$")
+    ax.set_ylabel("\$F_\\pm(q)\$")
+    ax.legend(;
+        # loc="lower center",
+        # loc="upper center",
+        loc=sign_Fsa < 0 ? "upper center" : "lower center",
+        fontsize=14,
+        title="\$r_s = $(Int(round(rs)))\$",
+        ncol=3,
+    )
+    ax.set_xlim(0, 4)
+    if sign_Fsa < 0
+        ax.set_ylim(-0.22, 0.06)
+    else
+        ax.set_ylim(-0.06, 0.22)
+    end
+    plt.tight_layout()
+    signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
+    fig.savefig("Fs_and_Fa_comparison_rs=$(rs)_$(signstr_Fsa).pdf")
+    return
+end
+
+function plot_integrand_F0p(; sign_Fsa=-1.0)
+    rslist = [0, 1, 5, 10, 20, Inf]
+    colorlist = [
+        cdict["grey"],
+        cdict["orange"],
+        cdict["blue"],
+        cdict["cyan"],
+        cdict["magenta"],
+        "black",
+    ]
     fig, ax = plt.subplots()
     x = np.linspace(0, 1, 1000)
     for (rs, color) in zip(rslist, colorlist)
         Fs_RPA = 0.0
         Fs_PW = sign_Fsa * get_Fs_PW(rs)
-        if rs > 0.25
-            @assert Fs_PW < 0 "Incorrect sign for Fs"
-        end
+        # if rs > 0.25
+        #     @assert Fs_PW < 0 "Incorrect sign for Fs"
+        # end
         for (Fs, linestyle) in zip([Fs_RPA, Fs_PW], ["--", "-"])
             if linestyle == "--"
                 label = nothing
@@ -167,26 +239,34 @@ function plot_integrand_F0p(; sign_Fsa=+1.0)
     end
     # ax.set_xlabel("\$x = \\left| \\mathbf{k} - \\mathbf{k}^\\prime \\right| / k_F\$")
     ax.set_xlabel("\$x\$")
-    ax.set_ylabel("\$I_0(x)\$")
-    ax.legend(; fontsize=10, loc="best")
-    ylim(-4.8, nothing)
+    ax.set_ylabel("\$I_0[W](x)\$")
+    ax.legend(; fontsize=10, loc="best", ncol=2)
+    xlim(0, 1)
+    ylim(-4.25, 2.25)
     # tight_layout()
     signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
     fig.savefig("integrand_F0p_$(signstr_Fsa).pdf")
     plt.close("all")
 end
 
-function plot_integrand_F1p(; sign_Fsa=+1.0)
-    rslist = [0, 1, 5, 10, Inf]
-    colorlist = [cdict["grey"], cdict["orange"], cdict["blue"], cdict["magenta"], "black"]
+function plot_integrand_F1p(; sign_Fsa=-1.0)
+    rslist = [0, 1, 5, 10, 20, Inf]
+    colorlist = [
+        cdict["grey"],
+        cdict["orange"],
+        cdict["blue"],
+        cdict["cyan"],
+        cdict["magenta"],
+        "black",
+    ]
     fig, ax = plt.subplots()
     x = np.linspace(0, 1, 1000)
     for (rs, color) in zip(rslist, colorlist)
         Fs_RPA = 0.0
         Fs_PW = sign_Fsa * get_Fs_PW(rs)
-        if rs > 0.25
-            @assert Fs_PW < 0 "Incorrect sign for Fs"
-        end
+        # if rs > 0.25
+        #     @assert Fs_PW < 0 "Incorrect sign for Fs"
+        # end
         for (Fs, linestyle) in zip([Fs_RPA, Fs_PW], ["--", "-"])
             if linestyle == "--"
                 label = nothing
@@ -200,29 +280,35 @@ function plot_integrand_F1p(; sign_Fsa=+1.0)
     end
     # ax.set_xlabel("\$x = \\left| \\mathbf{k} - \\mathbf{k}^\\prime \\right| / k_F\$")
     ax.set_xlabel("\$x\$")
-    ax.set_ylabel("\$I_1(x)\$")
-    ax.legend(; fontsize=10, loc="best")
+    ax.set_ylabel("\$I_1[W](x)\$")
+    ax.legend(; fontsize=10, loc="best", ncol=2)
+    xlim(0, 1)
+    ylim(-2.25, 4.25)
     # tight_layout()
     signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
     fig.savefig("integrand_F1p_$(signstr_Fsa).pdf")
     plt.close("all")
 end
 
-function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
+function get_analytic_F0p(rslist; plot=false, sign_Fsa=-1.0)
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     F0p_RPA = []
     F0p_KOp = []
     F0p_KOm = []
     F0p_KO = []
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
-    y_RPA_inf = [integrand_F0p(x, Inf) for x in xgrid]
-    F0p_RPA_inf = CompositeGrids.Interp.integrate1D(y_RPA_inf, xgrid)
+    y0_RPA_inf = [integrand_F0p(x, Inf) for x in xgrid]
+    y1_RPA_inf = [integrand_F1p(x, Inf) for x in xgrid]
+    F0p_RPA_inf = CompositeGrids.Interp.integrate1D(y0_RPA_inf, xgrid)
+    F1p_RPA_inf = CompositeGrids.Interp.integrate1D(y1_RPA_inf, xgrid)
+    println("F⁺₀[W₀](∞) = $(F0p_RPA_inf)")
+    println("F⁺₁[W₀](∞) = $(F1p_RPA_inf)")
     for rs in rslist
         Fs = sign_Fsa * get_Fs_PW(rs)
         Fa = sign_Fsa * get_Fa_PW(rs)
-        if rs > 0.25
-            @assert Fs < 0 && Fa < 0 "Incorrect sign for Fsa"
-        end
+        # if rs > 0.25
+        #     @assert Fs < 0 && Fa < 0 "Incorrect signs for Fs/Fa!"
+        # end
         # RPA
         y_RPA = [integrand_F0p(x, rs * alpha_ueg / π) for x in xgrid]
         val_RPA = CompositeGrids.Interp.integrate1D(y_RPA, xgrid)
@@ -243,13 +329,13 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
     end
     if plot
         fig, ax = plt.subplots()
-        ax.plot(rslist, F0p_RPA; color=cdict["orange"], label="\$W_0\$")
+        ax.plot(rslist, F0p_RPA; color="black", label="\$W_0\$")
         ax.plot(rslist, F0p_KOp; color=cdict["blue"], label="\$W^\\text{KO}_{0,+}\$")
-        ax.plot(rslist, F0p_KOm; color=cdict["cyan"], label="\$W^\\text{KO}_{0,-}\$")
+        ax.plot(rslist, F0p_KOm; color=cdict["teal"], label="\$W^\\text{KO}_{0,-}\$")
         ax.plot(
             rslist,
             F0p_KO;
-            color=cdict["magenta"],
+            color=cdict["red"],
             label="\$W^\\text{KO}_{0} = W^\\text{KO}_{0,+} + 3 W^\\text{KO}_{0,-}\$",
         )
         labelstr =
@@ -262,11 +348,16 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
             label=labelstr,
             zorder=-1,
         )
-        legend(; loc="best", fontsize=12)
         xlabel("\$r_s\$")
-        ylabel("\$F^+_{0,t}\$")
-        # ylabel("\$F^+_{0,t} - F^+\$")
+        ylabel("\$\\widetilde{F}^+_0[W]\$")
+        # ylabel("\$\\widetilde{F}^+_0 - \\widetilde{F}^+\$")
         # ylim(-1.1, 0.6)
+        xlim(0, 10)
+        if sign_Fsa < 0
+            ylim(-3.2, 0.6)
+        else
+            ylim(-1.2, 3.8)
+        end
         ax.legend(; fontsize=10, loc="best")
         # tight_layout()
         signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
@@ -276,7 +367,7 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=+1.0)
     return F0p_RPA, F0p_KOp, F0p_KO
 end
 
-function get_analytic_F1p(rslist; plot=false, sign_Fsa=+1.0)
+function get_analytic_F1p(rslist; plot=false, sign_Fsa=-1.0)
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     F1p_RPA = []
     F1p_KOp = []
@@ -287,7 +378,7 @@ function get_analytic_F1p(rslist; plot=false, sign_Fsa=+1.0)
         Fs = sign_Fsa * get_Fs_PW(rs)
         Fa = sign_Fsa * get_Fa_PW(rs)
         # if rs > 0.25
-        #     @assert Fs < 0 && Fa < 0 "Incorrect sign for Fsa"
+        #     @assert Fs < 0 && Fa < 0 "Incorrect signs for Fs/Fa!"
         # end
         # RPA
         y_RPA = [integrand_F1p(x, rs * alpha_ueg / π) for x in xgrid]
@@ -308,19 +399,23 @@ function get_analytic_F1p(rslist; plot=false, sign_Fsa=+1.0)
     end
     if plot
         fig, ax = plt.subplots()
-        ax.plot(rslist, F1p_RPA; color=cdict["orange"], label="\$W_0\$")
+        ax.plot(rslist, F1p_RPA; color="black", label="\$W_0\$")
         ax.plot(rslist, F1p_KOp; color=cdict["blue"], label="\$W^\\text{KO}_{0,+}\$")
-        ax.plot(rslist, F1p_KOm; color=cdict["cyan"], label="\$W^\\text{KO}_{0,-}\$")
+        ax.plot(rslist, F1p_KOm; color=cdict["teal"], label="\$W^\\text{KO}_{0,-}\$")
         ax.plot(
             rslist,
             F1p_KO;
-            color=cdict["magenta"],
+            color=cdict["red"],
             label="\$W^\\text{KO}_{0} = W^\\text{KO}_{0,+} + 3 W^\\text{KO}_{0,-}\$",
         )
-        legend(; loc="best", fontsize=12)
         xlabel("\$r_s\$")
-        ylabel("\$F^+_{1,t}\$")
-        ylim(-0.42, nothing)
+        ylabel("\$\\widetilde{F}^+_1[W]\$")
+        xlim(0, 10)
+        if sign_Fsa < 0
+            ylim(-0.425, 0.075)
+        else
+            ylim(-0.12, 0.08)
+        end
         ax.legend(; fontsize=10, loc="best")
         # tight_layout()
         signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
@@ -384,15 +479,16 @@ function get_tree_level_Flp_ElectronGas(
     l::Integer,
     param::Parameter.Para;
     int_type=:ko_const,
+    sign_Fsa=-1.0,
 )
     Fs = Fa = 0.0
     if int_type == :ko_const
         int_type_fp = int_type_fp_fm = int_type
         # Get Fermi liquid parameter F⁰ₛ(rs) from Perdew-Wang fit
-        Fs = get_Fs_PW(param.rs)
-        Fa = get_Fa_PW(param.rs)
+        Fs = -sign_Fsa * get_Fs_PW(param.rs)
+        Fa = -sign_Fsa * get_Fa_PW(param.rs)
         if param.rs > 0.25
-            @assert Fs > 0 && Fa > 0 "Incorrect sign for Fsa"
+            @assert Fs > 0 && Fa > 0 "Incorrect signs for Fs/Fa!"
         end
     elseif int_type == :ko_simion_giuliani
         int_type_fp = :ko_simion_giuliani_plus
@@ -414,7 +510,7 @@ function get_tree_level_Flp_ElectronLiquid(l::Integer, param::Parameter.Para; ve
     Fs = -get_Fs_PW(param.rs)
     Fa = -get_Fa_PW(param.rs)
     if param.rs > 0.25
-        @assert Fs < 0 && Fa < 0 "Incorrect sign for Fsa"
+        @assert Fs < 0 && Fa < 0 "Incorrect signs for Fs/Fa!"
     end
     W_ex = Ver4.exchange_interaction
     p_rpa = ParaMC(; rs=rs, beta=beta, dim=dim, Fs=0.0, Fa=0.0, order=1, mass2=0.0)
@@ -427,7 +523,7 @@ function get_tree_level_Flp_ElectronLiquid(l::Integer, param::Parameter.Para; ve
     return Flp_rpa, Flp_fp, Flp_fp_fm
 end
 
-function get_meff_ElectronGas(param::Parameter.Para; int_type=:ko_const)
+function get_meff_ElectronGas(param::Parameter.Para; int_type=:ko_const, sign_Fsa=-1.0)
     @unpack kF, EF, NF = param
 
     Fs = Fa = 0.0
@@ -436,8 +532,10 @@ function get_meff_ElectronGas(param::Parameter.Para; int_type=:ko_const)
         # Get Fermi liquid parameter F⁰ₛ(rs) from Perdew-Wang fit
         Fs = get_Fs_PW(param.rs)
         Fa = get_Fa_PW(param.rs)
+        # Fs = sign_Fsa * get_Fs_PW(param.rs)
+        # Fa = sign_Fsa * get_Fa_PW(param.rs)
         if param.rs > 0.25
-            @assert Fs > 0 && Fa > 0 "Incorrect sign for Fsa"
+            @assert Fs > 0 && Fa > 0 "Incorrect signs for Fs/Fa!"
         end
     elseif int_type == :ko_simion_giuliani
         int_type_fp = :ko_simion_giuliani_plus
@@ -506,56 +604,56 @@ function main()
     # UEG parameters
     beta = 1000.0
     dim = 3
-    # int_type = :ko_const
-    # int_type = :ko_simion_giuliani
 
     rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     rslist = sort(unique([0.01; rs_Fsm1; collect(range(0.125, 10.0; step=0.125))]))
 
     # Using the ElectronLiquid.jl (v + f) convention ⟹ F± < 0
-    sign_Fsa = -1.0
+    sign_Fsa = -1.0   # correct sign
+    # sign_Fsa = 1.0  # mismatched sign for testing
     signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
+
+    plot_Fermi_liquid_parameters(; rs=1.0, sign_Fsa=sign_Fsa)
+    # plot_Fermi_liquid_parameters(; rs=5.0, sign_Fsa=sign_Fsa)
+    # return
 
     # l=0 analytic plots
     plot_integrand_F0p(; sign_Fsa=sign_Fsa)
-    F0ps_RPA_A, F0ps_KOp_A, F0ps_KO_A =
-        get_analytic_F0p(rslist; plot=true, sign_Fsa=sign_Fsa)
+    get_analytic_F0p(rslist; plot=true, sign_Fsa=sign_Fsa)
 
     # l=1 analytic plots
     plot_integrand_F1p(; sign_Fsa=sign_Fsa)
-    F1ps_RPA_A, F1ps_KOp_A, F1ps_KO_A =
-        get_analytic_F1p(rslist; plot=true, sign_Fsa=sign_Fsa)
-
-    # return
+    get_analytic_F1p(rslist; plot=true, sign_Fsa=sign_Fsa)
 
     # load the npz data if it already exists
-    if isfile("meff_and_Flp_int_type_comparisons_Fs_Fa_$(signstr_Fsa).npz")
-        data = np.load("meff_and_Flp_int_type_comparisons_Fs_Fa_$(signstr_Fsa).npz")
-        rslist_small = data.get("rslist")
+    if isfile("meff_and_Flp_tree_level_int_type_comparisons_$(signstr_Fsa).npz")
+        data = np.load("meff_and_Flp_tree_level_int_type_comparisons_$(signstr_Fsa).npz")
+        rslist = data.get("rslist_Flp")
+        rslist_small = data.get("rslist_meff")
         meffs_RPA_C = data.get("meffs_RPA_C")
         meffs_KOp_C = data.get("meffs_KOp_C")
         meffs_KO_C = data.get("meffs_KO_C")
-        meffs_RPA_T = data.get("meffs_RPA_T")
-        meffs_KOp_T = data.get("meffs_KOp_T")
-        meffs_KO_T = data.get("meffs_KO_T")
+        # meffs_RPA_T = data.get("meffs_RPA_T")
+        # meffs_KOp_T = data.get("meffs_KOp_T")
+        # meffs_KO_T = data.get("meffs_KO_T")
         meffs_RPA_SG = data.get("meffs_RPA_SG")
         meffs_KOp_SG = data.get("meffs_KOp_SG")
         meffs_KO_SG = data.get("meffs_KO_SG")
         F0ps_RPA_C = data.get("F0ps_RPA_C")
         F0ps_KOp_C = data.get("F0ps_KOp_C")
         F0ps_KO_C = data.get("F0ps_KO_C")
-        F0ps_RPA_T = data.get("F0ps_RPA_T")
-        F0ps_KOp_T = data.get("F0ps_KOp_T")
-        F0ps_KO_T = data.get("F0ps_KO_T")
+        # F0ps_RPA_T = data.get("F0ps_RPA_T")
+        # F0ps_KOp_T = data.get("F0ps_KOp_T")
+        # F0ps_KO_T = data.get("F0ps_KO_T")
         F0ps_RPA_SG = data.get("F0ps_RPA_SG")
         F0ps_KOp_SG = data.get("F0ps_KOp_SG")
         F0ps_KO_SG = data.get("F0ps_KO_SG")
         F1ps_RPA_C = data.get("F1ps_RPA_C")
         F1ps_KOp_C = data.get("F1ps_KOp_C")
         F1ps_KO_C = data.get("F1ps_KO_C")
-        F1ps_RPA_T = data.get("F1ps_RPA_T")
-        F1ps_KOp_T = data.get("F1ps_KOp_T")
-        F1ps_KO_T = data.get("F1ps_KO_T")
+        # F1ps_RPA_T = data.get("F1ps_RPA_T")
+        # F1ps_KOp_T = data.get("F1ps_KOp_T")
+        # F1ps_KO_T = data.get("F1ps_KO_T")
         F1ps_RPA_SG = data.get("F1ps_RPA_SG")
         F1ps_KOp_SG = data.get("F1ps_KOp_SG")
         F1ps_KO_SG = data.get("F1ps_KO_SG")
@@ -563,9 +661,9 @@ function main()
         meffs_RPA_C = []
         meffs_KOp_C = []
         meffs_KO_C = []
-        meffs_RPA_T = []
-        meffs_KOp_T = []
-        meffs_KO_T = []
+        # meffs_RPA_T = []
+        # meffs_KOp_T = []
+        # meffs_KO_T = []
         meffs_RPA_SG = []
         meffs_KOp_SG = []
         meffs_KO_SG = []
@@ -579,12 +677,12 @@ function main()
             push!(meffs_RPA_C, meff_RPA_C)
             push!(meffs_KOp_C, meff_KOp_C)
             push!(meffs_KO_C, meff_KO_C)
-            # Takada ansatz for Fs and Fa
-            meff_RPA_T, meff_KOp_T, meff_KO_T =
-                get_meff_ElectronGas(param; int_type=:ko_takada)
-            push!(meffs_RPA_T, meff_RPA_T)
-            push!(meffs_KOp_T, meff_KOp_T)
-            push!(meffs_KO_T, meff_KO_T)
+            # # Takada ansatz for Fs and Fa
+            # meff_RPA_T, meff_KOp_T, meff_KO_T =
+            #     get_meff_ElectronGas(param; int_type=:ko_takada)
+            # push!(meffs_RPA_T, meff_RPA_T)
+            # push!(meffs_KOp_T, meff_KOp_T)
+            # push!(meffs_KO_T, meff_KO_T)
             # Moroni fit for Fs and Simion and Giuliani ansatz for Fa
             meff_RPA_SG, meff_KOp_SG, meff_KO_SG =
                 get_meff_ElectronGas(param; int_type=:ko_simion_giuliani)
@@ -597,18 +695,18 @@ function main()
         F0ps_RPA_C = []
         F0ps_KOp_C = []
         F0ps_KO_C = []
-        F0ps_RPA_T = []
-        F0ps_KOp_T = []
-        F0ps_KO_T = []
+        # F0ps_RPA_T = []
+        # F0ps_KOp_T = []
+        # F0ps_KO_T = []
         F0ps_RPA_SG = []
         F0ps_KOp_SG = []
         F0ps_KO_SG = []
         F1ps_RPA_C = []
         F1ps_KOp_C = []
         F1ps_KO_C = []
-        F1ps_RPA_T = []
-        F1ps_KOp_T = []
-        F1ps_KO_T = []
+        # F1ps_RPA_T = []
+        # F1ps_KOp_T = []
+        # F1ps_KO_T = []
         F1ps_RPA_SG = []
         F1ps_KOp_SG = []
         F1ps_KO_SG = []
@@ -618,31 +716,39 @@ function main()
 
             # Constant Fs and Fa
             # F0p
-            F0p_RPA_C, F0p_KOp_C, F0p_KO_C =
-                get_tree_level_Flp_ElectronGas(0, param; int_type=:ko_const)
+            F0p_RPA_C, F0p_KOp_C, F0p_KO_C = get_tree_level_Flp_ElectronGas(
+                0,
+                param;
+                int_type=:ko_const,
+                sign_Fsa=sign_Fsa,
+            )
             push!(F0ps_RPA_C, F0p_RPA_C)
             push!(F0ps_KOp_C, F0p_KOp_C)
             push!(F0ps_KO_C, F0p_KO_C)
             # F1p
-            F1p_RPA_C, F1p_KOp_C, F1p_KO_C =
-                get_tree_level_Flp_ElectronGas(1, param; int_type=:ko_const)
+            F1p_RPA_C, F1p_KOp_C, F1p_KO_C = get_tree_level_Flp_ElectronGas(
+                1,
+                param;
+                int_type=:ko_const,
+                sign_Fsa=sign_Fsa,
+            )
             push!(F1ps_RPA_C, F1p_RPA_C)
             push!(F1ps_KOp_C, F1p_KOp_C)
             push!(F1ps_KO_C, F1p_KO_C)
 
-            # Takada ansatz for Fs and Fa
-            # F0p
-            F0p_RPA_T, F0p_KOp_T, F0p_KO_T =
-                get_tree_level_Flp_ElectronGas(0, param; int_type=:ko_takada)
-            push!(F0ps_RPA_T, F0p_RPA_T)
-            push!(F0ps_KOp_T, F0p_KOp_T)
-            push!(F0ps_KO_T, F0p_KO_T)
-            # F1p
-            F1p_RPA_T, F1p_KOp_T, F1p_KO_T =
-                get_tree_level_Flp_ElectronGas(1, param; int_type=:ko_takada)
-            push!(F1ps_RPA_T, F1p_RPA_T)
-            push!(F1ps_KOp_T, F1p_KOp_T)
-            push!(F1ps_KO_T, F1p_KO_T)
+            # # Takada ansatz for Fs and Fa
+            # # F0p
+            # F0p_RPA_T, F0p_KOp_T, F0p_KO_T =
+            #     get_tree_level_Flp_ElectronGas(0, param; int_type=:ko_takada)
+            # push!(F0ps_RPA_T, F0p_RPA_T)
+            # push!(F0ps_KOp_T, F0p_KOp_T)
+            # push!(F0ps_KO_T, F0p_KO_T)
+            # # F1p
+            # F1p_RPA_T, F1p_KOp_T, F1p_KO_T =
+            #     get_tree_level_Flp_ElectronGas(1, param; int_type=:ko_takada)
+            # push!(F1ps_RPA_T, F1p_RPA_T)
+            # push!(F1ps_KOp_T, F1p_KOp_T)
+            # push!(F1ps_KO_T, F1p_KO_T)
 
             # Moroni fit for Fs and Simion and Giuliani ansatz for Fa
             # F0p
@@ -681,29 +787,29 @@ function main()
     plot_vs_rs(
         rslist_small,
         meffs_RPA_C,
-        cdict["orange"],
+        "black",
         "\$W_0\$",
         "-";
         data_rs0=1.0,
         rs_HDL=rs_HDL,
         meff_HDL=meff_HDL,
     )
-    plot_vs_rs(
-        rslist_small,
-        meffs_RPA_T,
-        cdict["orange"],
-        nothing,
-        "--";
-        data_rs0=1.0,
-        rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
-    )
+    # plot_vs_rs(
+    #     rslist_small,
+    #     meffs_RPA_T,
+    #     "black",
+    #     nothing,
+    #     "-.";
+    #     data_rs0=1.0,
+    #     rs_HDL=rs_HDL,
+    #     meff_HDL=meff_HDL,
+    # )
     plot_vs_rs(
         rslist_small,
         meffs_RPA_SG,
-        cdict["orange"],
+        "black",
         nothing,
-        "-.";
+        "--";
         data_rs0=1.0,
         rs_HDL=rs_HDL,
         meff_HDL=meff_HDL,
@@ -714,26 +820,26 @@ function main()
         rslist_small,
         meffs_KOp_C,
         cdict["blue"],
-        "\$W^\\text{KO}_{0,+}\$",
+        "\$W^\\text{KO}_{0,+}[f_\\pm]\$",
         "-";
         data_rs0=1.0,
     )
-    plot_vs_rs(
-        rslist_small,
-        meffs_KOp_T,
-        cdict["blue"],
-        nothing,
-        "--";
-        data_rs0=1.0,
-        rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
-    )
+    # plot_vs_rs(
+    #     rslist_small,
+    #     meffs_KOp_T,
+    #     cdict["blue"],
+    #     nothing,
+    #     "-.";
+    #     data_rs0=1.0,
+    #     rs_HDL=rs_HDL,
+    #     meff_HDL=meff_HDL,
+    # )
     plot_vs_rs(
         rslist_small,
         meffs_KOp_SG,
-        cdict["blue"],
-        nothing,
-        "-.";
+        cdict["cyan"],
+        "\$W^\\text{KO}_{0,+}[f_\\pm(q)]\$",
+        "-";
         data_rs0=1.0,
         rs_HDL=rs_HDL,
         meff_HDL=meff_HDL,
@@ -743,39 +849,48 @@ function main()
     plot_vs_rs(
         rslist_small,
         meffs_KO_C,
-        cdict["magenta"],
-        "\$W^\\text{KO}_{0}\$",
+        cdict["red"],
+        "\$W^\\text{KO}_{0}[f_\\pm]\$",
         "-";
         data_rs0=1.0,
     )
-    plot_vs_rs(
-        rslist_small,
-        meffs_KO_T,
-        cdict["magenta"],
-        nothing,
-        "--";
-        data_rs0=1.0,
-        rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
-    )
+    # plot_vs_rs(
+    #     rslist_small,
+    #     meffs_KO_T,
+    #     cdict["red"],
+    #     nothing,
+    #     "-.";
+    #     data_rs0=1.0,
+    #     rs_HDL=rs_HDL,
+    #     meff_HDL=meff_HDL,
+    # )
     plot_vs_rs(
         rslist_small,
         meffs_KO_SG,
-        cdict["magenta"],
-        nothing,
-        "-.";
+        cdict["orange"],
+        "\$W^\\text{KO}_{0}[f_\\pm(q)]\$",
+        "-";
         data_rs0=1.0,
         rs_HDL=rs_HDL,
         meff_HDL=meff_HDL,
     )
 
-    legend(; loc="best", fontsize=10)
-    ylabel("\$m^*/m\$")
+    # Data taken from Simion & Giuliani (2008), Table 1
+    rs_SG_data = collect(1:6)
+    m_RPA_SG_data = [0.970, 0.992, 1.016, 1.039, 1.059, 1.078]
+    m_Gp_SG_data = [0.952, 0.951, 0.956, 0.962, 0.968, 0.973]
+    m_Gpm_SG_data = [0.957, 0.966, 0.983, 1.005, 1.028, 1.055]
+    ax1.scatter(rs_SG_data, m_RPA_SG_data, 20; color="black", marker="^")
+    ax1.scatter(rs_SG_data, m_Gp_SG_data, 20; color=cdict["cyan"], marker="s")
+    ax1.scatter(rs_SG_data, m_Gpm_SG_data, 20; color=cdict["orange"], marker="D")
+
+    legend(; loc="best", fontsize=12, ncol=2)
+    ylabel("\$\\left(m^*/m\\right)_D[W]\$")
     xlabel("\$r_s\$")
-    ylim(0.905, 1.2)
+    # ylim(0.905, 1.2)
     xlim(0, 10)
     tight_layout()
-    savefig("meff_int_type_comparisons_Fs_Fa_$(signstr_Fsa).pdf")
+    savefig("meff_int_type_comparisons_$(signstr_Fsa).pdf")
 
     ##############################
     # Plot Flp comparisons vs rs #
@@ -784,93 +899,121 @@ function main()
     fig2 = figure(; figsize=(6, 6))
     ax2 = fig2.add_subplot(111)
 
+    F0p_RPA_inf = -1.2980116518203961
+    F1p_RPA_inf = 0.1348791193970809
+
     # Full F^+(rs)
     labelstr =
         sign_Fsa > 0 ? "\$-F^+ = \\kappa_0 / \\kappa - 1\$" :
         "\$F^+ = \\kappa_0 / \\kappa - 1\$"
+    labelstr2 =
+        sign_Fsa > 0 ? "\$-F^+ = \\kappa_0 / \\kappa - 1\$" :
+        "\$F^+ + \\widetilde{F}^+_0[W_0](\\infty)\$"
+    ax2.axhline(
+        F0p_RPA_inf;
+        color="black",
+        linestyle="--",
+        label="\$\\widetilde{F}^+_0[W_0](\\infty)\$",
+    )
+    plot_vs_rs(
+        rslist,
+        sign_Fsa * get_Fs_PW.(rslist) .+ F0p_RPA_inf,
+        cdict["blue"],
+        labelstr2,
+        "--";
+        data_rs0=F0p_RPA_inf,
+    )
     plot_vs_rs(rslist, sign_Fsa * get_Fs_PW.(rslist), cdict["grey"], labelstr, "-")
 
     # Tree-level RPA
-    plot_vs_rs(rslist, F0ps_RPA_C, cdict["orange"], "\$W_0\$", "-")
-    plot_vs_rs(rslist, F0ps_RPA_T, cdict["orange"], nothing, "--")
-    plot_vs_rs(rslist, F0ps_RPA_SG, cdict["orange"], nothing, "-.")
+    plot_vs_rs(rslist, F0ps_RPA_C, "black", "\$W_0\$", "-")
+    # plot_vs_rs(rslist, F0ps_RPA_T, "black", nothing, "-.")
+    # plot_vs_rs(rslist, F0ps_RPA_SG, "black", nothing, "--")
 
     # Tree-level KO with fp only
-    plot_vs_rs(rslist, F0ps_KOp_C, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
-    plot_vs_rs(rslist, F0ps_KOp_T, cdict["blue"], nothing, "--")
-    plot_vs_rs(rslist, F0ps_KOp_SG, cdict["blue"], nothing, "-.")
+    plot_vs_rs(rslist, F0ps_KOp_C, cdict["blue"], "\$W^\\text{KO}_{0,+}[f_\\pm]\$", "-")
+    # plot_vs_rs(rslist, F0ps_KOp_T, cdict["blue"], nothing, "-.")
+    plot_vs_rs(rslist, F0ps_KOp_SG, cdict["cyan"], "\$W^\\text{KO}_{0,+}[f_\\pm(q)]\$", "-")
 
     # Tree-level KO with fp and fm
-    plot_vs_rs(rslist, F0ps_KO_C, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
-    plot_vs_rs(rslist, F0ps_KO_T, cdict["magenta"], nothing, "--")
-    plot_vs_rs(rslist, F0ps_KO_SG, cdict["magenta"], nothing, "-.")
+    plot_vs_rs(rslist, F0ps_KO_C, cdict["red"], "\$W^\\text{KO}_{0}[f_\\pm]\$", "-")
+    # plot_vs_rs(rslist, F0ps_KO_T, cdict["red"], nothing, "-.")
+    plot_vs_rs(rslist, F0ps_KO_SG, cdict["orange"], "\$W^\\text{KO}_{0}[f_\\pm(q)]\$", "-")
 
-    legend(; loc="best", fontsize=10)
-    ylabel("\$F^+_{0,t}\$")
+    legend(; loc="best", fontsize=10, ncol=3)
+    ylabel("\$\\widetilde{F}^+_0[W]\$")
     xlabel("\$r_s\$")
     # ylim(-0.056, 0.034)
     # ylim(-1.1, 0.6)
     xlim(0, 10)
+    ylim(-2.6, 0.4)
     tight_layout()
-    savefig("F0p_int_type_comparisons_Fs_Fa_$(signstr_Fsa).pdf")
+    savefig("F0p_tree_level_int_type_comparisons_$(signstr_Fsa).pdf")
 
     fig3 = figure(; figsize=(6, 6))
     ax3 = fig3.add_subplot(111)
 
+    ax3.axhline(
+        F1p_RPA_inf;
+        color="black",
+        linestyle="--",
+        label="\$\\widetilde{F}^+_1[W_0](\\infty)\$",
+    )
+
     # Tree-level RPA
-    plot_vs_rs(rslist, F1ps_RPA_C, cdict["orange"], "\$W_0\$", "-")
-    plot_vs_rs(rslist, F1ps_RPA_T, cdict["orange"], nothing, "--")
-    plot_vs_rs(rslist, F1ps_RPA_SG, cdict["orange"], nothing, "-.")
+    plot_vs_rs(rslist, F1ps_RPA_C, "black", "\$W_0\$", "-")
+    # plot_vs_rs(rslist, F1ps_RPA_T, "black", nothing, "-.")
+    # plot_vs_rs(rslist, F1ps_RPA_SG, "black", nothing, "-")
 
     # Tree-level KO with fp only
-    plot_vs_rs(rslist, F1ps_KOp_C, cdict["blue"], "\$W^\\text{KO}_{0,+}\$", "-")
-    plot_vs_rs(rslist, F1ps_KOp_T, cdict["blue"], nothing, "--")
-    plot_vs_rs(rslist, F1ps_KOp_SG, cdict["blue"], nothing, "-.")
+    plot_vs_rs(rslist, F1ps_KOp_C, cdict["blue"], "\$W^\\text{KO}_{0,+}[f_\\pm]\$", "-")
+    # plot_vs_rs(rslist, F1ps_KOp_T, cdict["blue"], nothing, "-.")
+    plot_vs_rs(rslist, F1ps_KOp_SG, cdict["cyan"], "\$W^\\text{KO}_{0,+}[f_\\pm(q)]\$", "-")
 
     # Tree-level KO with fp and fm
-    plot_vs_rs(rslist, F1ps_KO_C, cdict["magenta"], "\$W^\\text{KO}_{0}\$", "-")
-    plot_vs_rs(rslist, F1ps_KO_T, cdict["magenta"], nothing, "--")
-    plot_vs_rs(rslist, F1ps_KO_SG, cdict["magenta"], nothing, "-.")
+    plot_vs_rs(rslist, F1ps_KO_C, cdict["red"], "\$W^\\text{KO}_{0}[f_\\pm]\$", "-")
+    # plot_vs_rs(rslist, F1ps_KO_T, cdict["red"], nothing, "-.")
+    plot_vs_rs(rslist, F1ps_KO_SG, cdict["orange"], "\$W^\\text{KO}_{0}[f_\\pm(q)]\$", "-")
 
-    legend(; loc="best", fontsize=10)
-    ylabel("\$F^+_{1,t}\$")
+    legend(; loc=(0.02, 0.75), fontsize=12, ncol=2)
+    ylabel("\$\\widetilde{F}^+_1[W]\$")
     xlabel("\$r_s\$")
     # ylim(-0.056, 0.034)
     # ylim(-0.072, 0.034)
     xlim(0, 10)
     tight_layout()
-    savefig("F1p_int_type_comparisons_Fs_Fa_$(signstr_Fsa).pdf")
+    savefig("F1p_tree_level_int_type_comparisons_$(signstr_Fsa).pdf")
 
-    if isfile("meff_and_Flp_int_type_comparisons_Fs_Fa_$(signstr_Fsa).npz") == false
+    if isfile("meff_and_Flp_tree_level_int_type_comparisons_$(signstr_Fsa).npz") == false
         np.savez(
-            "meff_and_Flp_int_type_comparisons_Fs_Fa_$(signstr_Fsa).npz";
-            # rslist_Flp=rslist,
-            # rslist_meff=rslist_small,
-            rslist=rslist_small,
+            "meff_and_Flp_tree_level_int_type_comparisons_$(signstr_Fsa).npz";
+            rslist_Flp=rslist,
+            rslist_meff=rslist_small,
+            # rslist=rslist_small,
             meffs_RPA_C=meffs_RPA_C,
             meffs_KOp_C=meffs_KOp_C,
             meffs_KO_C=meffs_KO_C,
-            meffs_RPA_T=meffs_RPA_T,
-            meffs_KOp_T=meffs_KOp_T,
-            meffs_KO_T=meffs_KO_T,
+            # meffs_RPA_T=meffs_RPA_T,
+            # meffs_KOp_T=meffs_KOp_T,
+            # meffs_KO_T=meffs_KO_T,
             meffs_RPA_SG=meffs_RPA_SG,
             meffs_KOp_SG=meffs_KOp_SG,
             meffs_KO_SG=meffs_KO_SG,
             F0ps_RPA_C=F0ps_RPA_C,
             F0ps_KOp_C=F0ps_KOp_C,
             F0ps_KO_C=F0ps_KO_C,
-            F0ps_RPA_T=F0ps_RPA_T,
-            F0ps_KOp_T=F0ps_KOp_T,
-            F0ps_KO_T=F0ps_KO_T,
+            # F0ps_RPA_T=F0ps_RPA_T,
+            # F0ps_KOp_T=F0ps_KOp_T,
+            # F0ps_KO_T=F0ps_KO_T,
             F0ps_RPA_SG=F0ps_RPA_SG,
             F0ps_KOp_SG=F0ps_KOp_SG,
             F0ps_KO_SG=F0ps_KO_SG,
             F1ps_RPA_C=F1ps_RPA_C,
             F1ps_KOp_C=F1ps_KOp_C,
             F1ps_KO_C=F1ps_KO_C,
-            F1ps_RPA_T=F1ps_RPA_T,
-            F1ps_KOp_T=F1ps_KOp_T,
-            F1ps_KO_T=F1ps_KO_T,
+            # F1ps_RPA_T=F1ps_RPA_T,
+            # F1ps_KOp_T=F1ps_KOp_T,
+            # F1ps_KO_T=F1ps_KO_T,
             F1ps_RPA_SG=F1ps_RPA_SG,
             F1ps_KOp_SG=F1ps_KOp_SG,
             F1ps_KO_SG=F1ps_KO_SG,
