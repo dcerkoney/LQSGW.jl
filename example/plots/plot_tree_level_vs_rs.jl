@@ -176,25 +176,35 @@ function plot_Fermi_liquid_parameters(; rs=1.0, sign_Fsa=-1.0)
     fig = figure(; figsize=(6, 6))
     ax = fig.add_subplot(111)
     # Fs
-    Fs_labelstr = sign_Fsa < 0 ? "\$\\frac{\\kappa_0}{\\kappa} - 1\$" : "\$1 - \\frac{\\kappa_0}{\\kappa}\$"
+    Fs_labelstr =
+        sign_Fsa < 0 ? "\$\\left(\\frac{\\kappa_0}{\\kappa} - 1\\right)_\\text{DMC}\$" :
+        "\$\\left(1 - \\frac{\\kappa_0}{\\kappa}\\right)_\\text{DMC}\$"
     # ax.plot(qlist / kF, Fs_T_list; color=cdict["orange"], label="\$F_+^\\text{T}(q)\$")
     ax.plot(qlist / kF, Fs_SG_list; color=cdict["red"], label="\$F_+(q)\$")
     ax.axhline(Fs_C; color=cdict["magenta"], label=Fs_labelstr, linestyle="--")
     # Fa
-    Fa_labelstr = sign_Fsa < 0 ? "\$\\frac{\\chi_0}{\\chi} - 1\$" : "\$1 - \\frac{\\chi_0}{\\chi}\$"
+    Fa_labelstr =
+        sign_Fsa < 0 ? "\$\\left(\\frac{\\chi_0}{\\chi} - 1\\right)_\\text{DMC}\$" :
+        "\$\\left(1 - \\frac{\\chi_0}{\\chi}\\right)_\\text{DMC}\$"
     # ax.plot(qlist / kF, Fa_T_list; color=cdict["teal"], label="\$F_-^\\text{T}(q)\$")
     ax.plot(qlist / kF, Fa_SG_list; color=cdict["blue"], label="\$F_-(q)\$")
     ax.axhline(Fa_C; color=cdict["cyan"], label=Fa_labelstr, linestyle="--")
-    ax.axhline(Fsa_SG_inf; color=cdict["black"], label="\$F_\\pm(\\infty)\$", linestyle="--")
+    ax.axhline(
+        Fsa_SG_inf;
+        color=cdict["black"],
+        label="\$F_\\pm(\\infty)\$",
+        linestyle="--",
+    )
     ax.set_xlabel("\$q / k_F\$")
     ax.set_ylabel("\$F_\\pm(q)\$")
     ax.legend(;
         # loc="lower center",
         # loc="upper center",
         loc=sign_Fsa < 0 ? "upper center" : "lower center",
-        fontsize=14,
+        fontsize=12,
         title="\$r_s = $(Int(round(rs)))\$",
         ncol=3,
+        # columnspacing=0.2,
     )
     ax.set_xlim(0, 4)
     if sign_Fsa < 0
@@ -905,7 +915,7 @@ function main()
     # Full F^+(rs)
     labelstr =
         sign_Fsa > 0 ? "\$-F^+ = \\kappa_0 / \\kappa - 1\$" :
-        "\$F^+ = \\kappa_0 / \\kappa - 1\$"
+        "\$F^+ = \\left(\\frac{\\kappa_0}{\\kappa} - 1\\right)_\\text{DMC}\$"
     labelstr2 =
         sign_Fsa > 0 ? "\$-F^+ = \\kappa_0 / \\kappa - 1\$" :
         "\$F^+ + \\widetilde{F}^+_0[W_0](\\infty)\$"
