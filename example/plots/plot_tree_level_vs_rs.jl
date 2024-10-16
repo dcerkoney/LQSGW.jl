@@ -4,11 +4,13 @@ using ElectronGas
 using ElectronLiquid
 using GreenFunc
 using JLD2
+using LsqFit
 using Lehmann
 using LQSGW
 using Parameters
 using PyCall
 using PyPlot
+using Roots
 
 @pyimport numpy as np   # for saving/loading numpy data
 @pyimport scienceplots  # for style "science"
@@ -610,6 +612,81 @@ function plot_vs_rs(
     return handle
 end
 
+function errorbar_vs_rs(
+    rslist,
+    data,
+    err,
+    label,
+    color=cdict["black"],
+    fmt="s";
+    ax=plt.gca(),
+    zorder=nothing,
+    capsize=4,
+)
+    if isnothing(zorder)
+        handle = ax.errorbar(
+            rslist,
+            data,
+            err;
+            fmt=fmt,
+            capthick=1,
+            capsize=capsize,
+            ms=5,
+            color=color,
+            label=label,
+        )
+    else
+        handle = ax.errorbar(
+            rslist,
+            data,
+            err;
+            fmt=fmt,
+            capthick=1,
+            capsize=capsize,
+            ms=5,
+            color=color,
+            label=label,
+            zorder=zorder,
+        )
+    end
+    return handle
+end
+
+function get_self_consistent_F0p_KOp()
+    function I0_KOp(x, y)
+        y_mask(x) = -1 - x / 4
+        # mask the region where y < y_mask
+        if y < y_mask(x)
+            return -Inf
+        end
+        ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+        integrand = [-1 * integrand_F0p(t, x * alpha_ueg / π, y) for t in ts]
+        integral = CompositeGrids.Interp.integrate1D(integrand, ts)
+        return integral
+    end
+    rslist = CompositeGrid.LogDensedGrid(:cheb, [0.0, 10.0], [0.0], 16, 1e-3, 16)
+    F0ps_sc = Float64[]
+    for rs in rslist
+        F0p_sc = find_zero(Fp -> I0_KOp(rs, Fp), (-3.5, 0))
+        push!(F0ps_sc, F0p_sc)
+    end
+    # # Least-squares fit to a [3/3] Pade rational form
+    # @. model(x, p) =
+    #     (p[1] + p[2] * x + p[3] * x^2 + p[4] * x^3) /
+    #     (1 + p[5] * x + p[6] * x^2 + p[7] * x^3)
+    # x = rslist.grid
+    # y = F0ps_sc
+    # fit = curve_fit(model, x, y, [0.01, -0.5, 0.01, 0.01, 0.01, 0.01, 0.01])
+    # fitted_model(x) = model(x, fit.param)
+    # fit_errs = stderror(fit)
+    # println("fit parameters:\t\t$(fit.param)")
+    # println("fit standard errors:\t$(fit_errs)")
+    # # plot(x, y)
+    # # plot!(x, fitted_model.(x); linestyle=:dash)
+    # y_fit = fitted_model.(x)
+    return rslist.grid, F0ps_sc
+end
+
 function plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
     function f(x, y; y_mask=y_mask)
         # mask the region where y < y_mask
@@ -866,8 +943,10 @@ function main()
         end
     end
 
+    # Self-consistent solution for F0p in the KO+ scheme
     plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
-    return
+    rs_KOp_sc, F0p_KOp_sc = get_self_consistent_F0p_KOp()
+    # return
 
     ###############################
     # Plot meff comparisons vs rs #
@@ -906,16 +985,16 @@ function main()
     #     rs_HDL=rs_HDL,
     #     meff_HDL=meff_HDL,
     # )
-    plot_vs_rs(
-        rslist_small,
-        meffs_RPA_SG,
-        "black",
-        nothing,
-        "--";
-        data_rs0=1.0,
-        rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
-    )
+    # plot_vs_rs(
+    #     rslist_small,
+    #     meffs_RPA_SG,
+    #     "black",
+    #     nothing,
+    #     "--";
+    #     data_rs0=1.0,
+    #     rs_HDL=rs_HDL,
+    #     meff_HDL=meff_HDL,
+    # )
 
     # KOp effective mass from Dyson self-energy
     plot_vs_rs(
@@ -1042,6 +1121,9 @@ function main()
     # plot_vs_rs(rslist, F0ps_KO_T, cdict["red"], nothing, "-.")
     plot_vs_rs(rslist, F0ps_KO_SG, cdict["orange"], "\$W^\\text{KO}_{0}[f_\\pm(q)]\$", "-")
 
+    # Self-consistent KO with fp only
+    plot_vs_rs(rs_KOp_sc, F0p_KOp_sc, cdict["teal"], "\$F^+_\\text{sc}\$", "-")
+
     legend(; loc="best", fontsize=10, ncol=3)
     ylabel("\$\\widetilde{F}^+_0[W]\$")
     xlabel("\$r_s\$")
@@ -1121,6 +1203,113 @@ function main()
             F1ps_KO_SG=F1ps_KO_SG,
         )
     end
+
+    ###################################
+    # Final 3D plot of effective mass #
+    ###################################
+
+    fig4 = figure(; figsize=(6, 6))
+    ax4 = fig4.add_subplot(111)
+
+    m_VDMC = [1.0, 0.95893, 0.9514, 0.9516, 0.9597, 0.9692, 0.9771, 0.9842]
+    m_VDMC_err = [0, 0.00067, 0.0016, 0.0018, 0.0016, 0.0026, 0.0028, 0.0029]
+    rs_VDMC = [0, 0.5, 1, 2, 3, 4, 5, 6]
+
+    rs_VMC = [0, 1, 2, 4, 5, 10]
+    # m_BFVMC = [[1.00, 0.01], [0.98, 0.01], [1.00, 0.02], [1.09,0.03],[1.28, 0.03]]
+    m_BFVMC = [1.0, 1.00, 0.98, 1.00, 1.09, 1.28]
+    m_BFVMC_err = [0, 0.01, 0.01, 0.02, 0.03, 0.03]
+    # m_SJVMC = [[0.96,0.01], [0.94, 0.02], [0.94, 0.02], [1.02, 0.02], [1.13, 0.03]]
+    m_SJVMC = [1.0, 0.96, 0.94, 0.94, 1.02, 1.13]
+    m_SJVMC_err = [0, 0.01, 0.02, 0.02, 0.02, 0.03]
+
+    rs_DMC = [0, 1, 2, 3, 4, 5]
+    m_DMC = [1.0, 0.918, 0.879, 0.856, 0.842, 0.791]
+    m_DMC_err = [0, 0.006, 0.014, 0.014, 0.017, 0.01]
+
+    # DMC data
+    handle1 = errorbar_vs_rs(rs_DMC, m_DMC, m_DMC_err, "DMC", cdict["blue"], "s"; zorder=10)
+    println(handle1)
+
+    # VMC data
+    handle2 = errorbar_vs_rs(rs_VMC, m_SJVMC, m_SJVMC_err, "VMC", cdict["red"], "^"; zorder=20)
+
+    # Our VDMC data
+    handle3 =
+        errorbar_vs_rs(rs_VDMC, m_VDMC, m_VDMC_err, "This work", cdict["black"], "o"; zorder=30)
+    plot_vs_rs(
+        rs_VDMC,
+        m_VDMC,
+        cdict["black"],
+        "",
+        "-";
+        data_rs0=1.0,
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+    )
+
+    # RPA effective mass from Dyson self-energy
+    handle4 = plot_vs_rs(
+        rslist_small,
+        meffs_RPA_C,
+        cdict["orange"],
+        "\$\\text{RPA}\$",
+        "--";
+        data_rs0=1.0,
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+    )
+    println(handle4)
+
+    # Tree-level G0W0
+    handle5 = plot_vs_rs(
+        rslist,
+        # 1 .+ F1ps_RPA_C,
+        1 .+ F1ps_RPA_C / 2,
+        cdict["magenta"],
+        # "\$1 + \\widetilde{F}^{+}_1\\left[W_0\\right]\$",
+        "\$1 + \\frac{1}{2}\\widetilde{F}^{+}_1\\left[W_0\\right]\$",
+        "--";
+        data_rs0=1.0,
+        # rs_HDL=rs_HDL,
+        # meff_HDL=meff_HDL,
+    )
+
+    # Tree-level KOp
+    handle6 = plot_vs_rs(
+        rslist,
+        # 1 .+ F1ps_KOp_C,
+        1 .+ F1ps_KOp_C / 2,
+        cdict["cyan"],
+        # "\$1 + \\widetilde{F}^{+}_1\\left[W^\\text{KO}_{0,+}\\right]\$",
+        "\$1 + \\frac{1}{2}\\widetilde{F}^{+}_1\\left[W^\\text{KO}_{0,+}\\right]\$",
+        "--";
+        data_rs0=1.0,
+        # rs_HDL=rs_HDL,
+        # meff_HDL=meff_HDL,
+    )
+
+    # Labels
+    ax4.set_xlabel("\$r_s\$")
+    ax4.set_ylabel("\$m^*/m\$")
+    ax4.set_xlim(0, 6.2)
+    # ax4.set_ylim(0.765, 1.135)
+    ax4.set_ylim(0.765, 1.185)
+    # ax4.annotate("3D"; xy=(0.875, 0.9), xycoords="axes fraction")
+    ax4.annotate("3D"; xy=(0.1, 0.1), xycoords="axes fraction")
+
+    # Assemble legends
+    # l1_handles = [handle1, handle2, handle3]
+    # l2_handles = [handle1, handle2, handle3, handle4, handle5, handle6]
+    # bottom_legend = plt.legend(; handles=l1_handles, loc="lower left", fontsize=14)
+    # top_legend = plt.legend(; handles=l2_handles, loc="upper left", fontsize=14)
+    # ax4.add_artist(top_legend)
+    # ax4.add_artist(bottom_legend)
+    ax4.legend(; loc="upper left", ncol=2)
+    ax4.set_xticks([0, 1, 2, 3, 4, 5, 6])
+    ax4.set_yticks([0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15])
+    # fig4.savefig("meff_3D_with_tree_level.pdf")
+    fig4.savefig("meff_3D_with_tree_level_halved.pdf")
 
     ########################################
     # Benchmark Flp against ElectronLiquid #
