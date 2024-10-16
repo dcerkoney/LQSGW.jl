@@ -106,7 +106,7 @@ end
 function lindhard(x)
     if abs(x) < 1e-4
         return 1.0 - x^2 / 3 - x^4 / 15
-    elseif abs(x - 1) < 1e-5
+    elseif abs(x - 1) < 1e-7
         return 0.5
     elseif x > 20
         return 1 / (3 * x^2) + 1 / (15 * x^4)
@@ -610,6 +610,94 @@ function plot_vs_rs(
     return handle
 end
 
+function plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
+    function f(x, y; y_mask=y_mask)
+        # mask the region where y < y_mask
+        if y < y_mask(x)
+            return -Inf
+        end
+        ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+        integrand = [-1 * integrand_F0p(t, x * alpha_ueg / π, y) for t in ts]
+        f = CompositeGrids.Interp.integrate1D(integrand, ts)
+        return f
+    end
+
+    # masking function to discount numerically unstable region
+    y_mask(x) = -1 - x / 4
+
+    # contour plot
+    x = range(0, 10; length=100)
+    y = range(-3.5, 0; length=100)
+    z = @. f(x', y; y_mask=y_mask)
+
+    fig, ax = plt.subplots()
+    # plot the Perdew & Wang result for F+
+    ax.plot(
+        x,
+        -get_Fs_PW.(x);
+        color=cdict["grey"],
+        label="\$\\kappa_0 / \\kappa - 1\$",
+        linestyle="--",
+    )
+
+    # Tree-level KO with fp only
+    plot_vs_rs(
+        rslist,
+        F0ps_KOp_C,
+        cdict["black"],
+        "\$\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\left[f_\\pm\\right]\\right]\$",
+        "--",
+    )
+    plot_vs_rs(
+        rslist,
+        F0ps_KOp_SG,
+        cdict["black"],
+        "\$\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\left[f_\\pm(q)\\right]\\right]\$",
+        "-",
+    )
+    # plot_vs_rs(
+    #     rslist,
+    #     F0ps_KOp_C,
+    #     cdict["black"],
+    #     "\$\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\right]\$",
+    #     "-",
+    # )
+    CS = ax.contour(
+        x,
+        y,
+        z;
+        levels=[-1, 0, 0.5],
+        colors=[cdict["teal"], cdict["blue"], cdict["orange"]],
+    )
+    fmt = Dict(-2 => "\$-2\$", -1 => "\$-1\$", 0 => "\$0\$", 0.5 => "\$\\frac{1}{2}\$")
+    ax.clabel(
+        CS;
+        inline=true,
+        fontsize=10,
+        fmt=fmt,
+        manual=[
+            # (6.75, -2.6),
+            (7.0, -2.5),
+            (5.0, -1.5),
+            (3.0, -0.25),
+        ],
+    )
+    ax.legend(; loc="lower left", fontsize=10)
+    ax.set_xlim(0, 10)
+    ax.set_ylim(-3.2, 0)
+    ax.set_xlabel("\$r_s\$")
+    ax.set_ylabel("\$F_+\$")
+    ax.set_title(
+        "\$I_0\\left[W^\\text{KO}_{0,+}\\right](r_s, F_+) = \\text{const.}\$";
+        pad=15,
+    )
+    fig.savefig("F0p_contours_full.pdf")
+    # fig.savefig("F0p_contours.pdf")
+    plt.tight_layout()
+    plt.close("all")
+    return
+end
+
 function main()
     # UEG parameters
     beta = 1000.0
@@ -667,6 +755,7 @@ function main()
         F1ps_RPA_SG = data.get("F1ps_RPA_SG")
         F1ps_KOp_SG = data.get("F1ps_KOp_SG")
         F1ps_KO_SG = data.get("F1ps_KO_SG")
+        println("Loaded data from file.")
     else
         meffs_RPA_C = []
         meffs_KOp_C = []
@@ -776,6 +865,9 @@ function main()
             println("done!")
         end
     end
+
+    plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
+    return
 
     ###############################
     # Plot meff comparisons vs rs #
