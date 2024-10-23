@@ -306,7 +306,6 @@ function get_g0w0_properties(
     savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
 )
-    @assert max_steps ≤ MAXIMUM_STEPS "max_steps must be ≤ $MAXIMUM_STEPS"
     # No-op at rs = 0
     if param.rs == 0.0
         i_step = 0

@@ -440,7 +440,6 @@ function Σ_G0W0(
     savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
 )
-    @assert max_steps ≤ MAXIMUM_STEPS "max_steps must be ≤ $MAXIMUM_STEPS"
     return Σ_G0W0(
         param,
         Euv,
