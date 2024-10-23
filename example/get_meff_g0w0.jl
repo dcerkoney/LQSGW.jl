@@ -85,7 +85,7 @@ function main()
     datadict_rpa = Dict()
     datadict_fp = Dict()
     datadict_fp_fm = Dict()
-    for (i, (rs, alpha)) in enumerate(zip(rslist, alphalist))
+    for (i, rs) in enumerate(rslist)
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF = param
         # DLR parameters
