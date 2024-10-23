@@ -49,7 +49,7 @@ function main()
     # Nk, order = 14, 10
     Nk, order = 12, 8
     # Nk, order = 10, 7
- 
+
     # LQSGW parameters
     max_steps = 300
     atol = 1e-5
@@ -69,8 +69,8 @@ function main()
     #alphalist = [0.3, 0.3]
 
     calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => true)
-    rslist = [0.01, 0.1, 0.5]
-    alphalist = [0.3, 0.3, 0.3]
+    rslist = [0.01, 0.1, 0.5, 1.0]
+    alphalist = [0.3, 0.3, 0.3, 0.3]
 
     #calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => false)
     #rslist = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
@@ -143,6 +143,7 @@ function main()
         Fs=-0.0,
         Fa=-0.0;
         loadname=nothing,
+        overwrite=overwrite,
     )
         return get_lqsgw_properties(
             param;
@@ -162,6 +163,7 @@ function main()
             verbose=verbose,
             save=save,
             loadname=loadname,
+            overwrite=overwrite,
         )
     end
 
@@ -204,6 +206,7 @@ function main()
                 minK,
                 alpha;
                 loadname=get_loadname(i, :rpa),
+                overwrite=i == 1,  # use G0W0 for the first rs datapoint
             )
         end
         if calculate["fp"]
@@ -217,6 +220,7 @@ function main()
                 int_type_fp,
                 Fs;
                 loadname=get_loadname(i, int_type_fp),
+                overwrite=i == 1,  # use G0W0 for the first rs datapoint
             )
         end
         if calculate["fp_fm"]
@@ -231,6 +235,7 @@ function main()
                 Fs,
                 Fa;
                 loadname=get_loadname(i, int_type_fp_fm),
+                overwrite=i == 1,  # use G0W0 for the first rs datapoint
             )
         end
         # Save data for this rs to dictionaries

@@ -133,7 +133,7 @@ function load_lqsgw_starting_point(loaddir, loadname)
                 end
             end
             if max_step < 0
-                error("No data found in $(savedir)!")
+                error("No data found in $(loaddir)!")
             end
             _loaddata = file[string(max_step)]
             _loadparam = Parameter.from_string(file["param"])
@@ -171,12 +171,18 @@ function get_starting_point(
     rescale=true,
     loaddir=nothing,
     loadname=nothing,
+    overwrite=false,
 )
     MPI.Initialized() == false && MPI.Init()
     comm = MPI.COMM_WORLD
     root = 0
     rank = MPI.Comm_rank(comm)
-    if isnothing(loaddir) == false && isnothing(loadname) == false
+    using_existing_lqsgw_data = (
+        (overwrite == false) &&
+        (isnothing(loaddir) == false) &&
+        (isnothing(loadname) == false)
+    )
+    if using_existing_lqsgw_data
         loaddata, loadparam = load_lqsgw_starting_point(loaddir, loadname)
         # Either relabel or rescale the starting point for Σ to match the current parameters
         if rescale
@@ -215,8 +221,12 @@ function relabel_starting_point(param::Parameter.Para, loaddata, loadparam, fdlr
         xgrid_old = loaddata.Σ.mesh[2] / loadparam.kF
         xgrid_new = kSgrid / param.kF
         @assert isapprox(xgrid_old, xgrid_new, rtol=1e-7) "Mismatch in dimensionless kgrids for new/old Σ data!"
-        Σ_relabeled =
-            GreenFunc.MeshArray(ImFreq(fdlr), kSgrid; dtype=ComplexF64, data=loaddata.Σ.data)
+        Σ_relabeled = GreenFunc.MeshArray(
+            ImFreq(fdlr),
+            kSgrid;
+            dtype=ComplexF64,
+            data=loaddata.Σ.data,
+        )
         Σ_ins_relabeled = GreenFunc.MeshArray(
             ImTime(fdlr; grid=[param.β]),
             kSgrid;
@@ -603,6 +613,7 @@ function Σ_LQSGW(
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
     loaddir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
     loadname=nothing,
+    overwrite=false,
 )
     @assert max_steps ≤ MAXIMUM_STEPS "max_steps must be ≤ $MAXIMUM_STEPS"
     return Σ_LQSGW(
@@ -627,6 +638,7 @@ function Σ_LQSGW(
         savename,
         loaddir,
         loadname,
+        overwrite,
     )
 end
 
@@ -652,6 +664,7 @@ function Σ_LQSGW(
     savename,
     loaddir,
     loadname,
+    overwrite,
 )
     MPI.Init()
     comm = MPI.COMM_WORLD
@@ -759,6 +772,7 @@ function Σ_LQSGW(
         Σ_GW;
         loaddir=loaddir,
         loadname=loadname,
+        overwrite=overwrite,
     )
     if verbose
         println_root("""
