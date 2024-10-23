@@ -29,7 +29,8 @@ export bare_energy,
     zfactor_fermi,
     zfactor_full,
     massratio,
-    get_lqsgw_properties
+    get_lqsgw_properties,
+    get_g0w0_properties
 
 include("green.jl")
 export G_0, G_qp
@@ -60,7 +61,7 @@ end
 Return the indices of unique elements of `a` in the order 
 they first appear, such that `a[uniqueperm(a)] == unique(a)`.
 """
-function uniqueperm(a) 
+function uniqueperm(a)
     return unique(i -> a[i], eachindex(a))
 end
 
