@@ -466,7 +466,7 @@ function Σ_G0W0(
     savename,
 )
     # Make sigma output directory if needed
-    if save && rank == root
+    if save
         mkpath(savedir)
     end
 
@@ -541,7 +541,7 @@ function Σ_G0W0(
 
     # Helper function to write data to JLD2 file
     function write_to_file(key, val; write_mode="a", compress=true)
-        if save && rank == root
+        if save
             jldopen(joinpath(savedir, savename), write_mode; compress=compress) do file
                 file[string(key)] = val
             end
@@ -563,10 +563,10 @@ function Σ_G0W0(
         Fs,
         Fa,
         Σ_GW;
-        verbose=rank == root,
+        verbose=true,
     )
     if verbose
-        println_root("""
+        println("""
         Calculated one-shot GW self-energy with:
         • rs          = \t$(round(param.rs; sigdigits=13))
         • m*/m        = \t$(oneshot_data.meff)
