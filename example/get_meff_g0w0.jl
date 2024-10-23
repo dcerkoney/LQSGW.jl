@@ -1,7 +1,6 @@
 using ElectronGas
 using JLD2
 using LQSGW
-using MPI
 using Parameters
 using PyCall
 
@@ -36,11 +35,6 @@ susceptibility ratio data (c.f. Kukkonen & Chen, 2021)
 end
 
 function main()
-    MPI.Init()
-    comm = MPI.COMM_WORLD
-    root = 0
-    rank = MPI.Comm_rank(comm)
-
     # UEG parameters
     beta = 40.0
     dim = 3
@@ -104,7 +98,7 @@ function main()
         Fs = get_Fs_PW(rs)
         Fa = get_Fa_PW(rs)
         # Compute one-shot GW quasiparticle properties
-        println_root("Calculating one-shot GW quasiparticle properties for rs = $rs...")
+        println("Calculating one-shot GW quasiparticle properties for rs = $rs...")
         data_rpa = []
         data_fp = []
         data_fp_fm = []
@@ -126,36 +120,33 @@ function main()
             haskey(dd, _rs) && error("Duplicate rs = $(rs) found in one-shot GW run!")
             dd[_rs] = data
         end
-        println_root("Done.\n")
+        println("Done.\n")
     end
 
     # Save the data
-    if rank == root
-        for (int_type, datadict, calc) in zip(
-            [:rpa, int_type_fp, int_type_fp_fm],
-            [datadict_rpa, datadict_fp, datadict_fp_fm],
-            [calculate["rpa"], calculate["fp"], calculate["fp_fm"]],
-        )
-            !calc && continue
-            # Make output directory if needed
-            dir = "$(DATA_DIR)/$(dim)d/$(int_type)"
-            mkpath(dir)
-            # Avoid overwriting existing data
-            i = 0
-            f = "oneshot_gw_$(dim)d_$(int_type).jld2"
-            while isfile(joinpath(dir, f))
-                i += 1
-                f = "oneshot_gw_$(dim)d_$(int_type)_$(i).jld2"
-            end
-            # Save to JLD2
-            jldopen(joinpath(dir, f), "w") do file
-                for (k, v) in datadict
-                    file[string(k)] = v
-                end
+    for (int_type, datadict, calc) in zip(
+        [:rpa, int_type_fp, int_type_fp_fm],
+        [datadict_rpa, datadict_fp, datadict_fp_fm],
+        [calculate["rpa"], calculate["fp"], calculate["fp_fm"]],
+     )
+        !calc && continue
+        # Make output directory if needed
+        dir = "$(DATA_DIR)/$(dim)d/$(int_type)"
+        mkpath(dir)
+        # Avoid overwriting existing data
+        i = 0
+        f = "oneshot_gw_$(dim)d_$(int_type).jld2"
+        while isfile(joinpath(dir, f))
+            i += 1
+            f = "oneshot_gw_$(dim)d_$(int_type)_$(i).jld2"
+        end
+        # Save to JLD2
+        jldopen(joinpath(dir, f), "w") do file
+            for (k, v) in datadict
+                file[string(k)] = v
             end
         end
     end
-    MPI.Finalize()
     return
 end
 

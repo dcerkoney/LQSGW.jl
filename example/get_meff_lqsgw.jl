@@ -62,15 +62,23 @@ function main()
     # Use data at previous rs as initial guess for next rs or not?
     use_prev_rs = true
 
-    # Testing previous rs mode
-    calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
-    #rslist = [0.99, 1.0]  # ok
-    rslist = [4.5, 5.0]
-    alphalist = [0.3, 0.3]
+    ## Testing previous rs mode
+    #calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => false)
+    ##rslist = [0.99, 1.0]  # ok
+    #rslist = [4.5, 5.0]
+    #alphalist = [0.3, 0.3]
+
+    calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => true)
+    rslist = [0.01, 0.1, 0.5]
+    alphalist = [0.3, 0.3, 0.3]
+
+    #calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => false)
+    #rslist = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+    #alphalist = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1]
 
     # calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
-    # rslist = [0.01, 0.25, 0.5]
-    # alphalist = [0.3, 0.3, 0.3]
+    #rslist = [0.01, 0.25, 0.5]
+    #alphalist = [0.3, 0.3, 0.3]
 
     #calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
     #rslist = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
