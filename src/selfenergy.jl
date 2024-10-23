@@ -414,6 +414,173 @@ function calcΣ_3d(G::GreenFunc.MeshArray, W::LegendreInteraction.DCKernel)
     return Σ / (-4 * π^2), Σ_ins / (-4 * π^2)
 end
 
+function Σ_G0W0(
+    param::Parameter.Para;
+    Euv=1000 * param.EF,
+    rtol=1e-14,
+    Nk=14,
+    maxK=6 * param.kF,
+    minK=1e-8 * param.kF,
+    order=10,
+    int_type=:rpa,
+    Fs=0.0,
+    Fa=0.0,
+    verbose=false,
+    save=false,
+    savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
+    savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
+)
+    @assert max_steps ≤ MAXIMUM_STEPS "max_steps must be ≤ $MAXIMUM_STEPS"
+    return Σ_G0W0(
+        param,
+        Euv,
+        rtol,
+        Nk,
+        maxK,
+        minK,
+        order,
+        int_type,
+        Fs,
+        Fa,
+        verbose,
+        save,
+        savedir,
+        savename,
+    )
+end
+
+function Σ_G0W0(
+    param::Parameter.Para,
+    Euv,
+    rtol,
+    Nk,
+    maxK,
+    minK,
+    order,
+    int_type,
+    Fs,
+    Fa,
+    verbose,
+    save,
+    savedir,
+    savename,
+)
+    # Make sigma output directory if needed
+    if save && rank == root
+        mkpath(savedir)
+    end
+
+    # Make sure we are using parameters for the bare UEG theory
+    @assert param.Λs == param.Λa == 0.0
+    @unpack beta, β, kF = param
+
+    # Get Fermi liquid parameter F⁰ₛ(rs) from Perdew-Wang fit
+    rs = round(param.rs; sigdigits=13)
+    if int_type in [:ko_const_p, :ko_const_pm]
+        _int_type = :ko_const
+        if verbose && int_type == :ko_const_pm
+            println("Fermi liquid parameters at rs = $(rs): Fs = $Fs, Fa = $Fa")
+        end
+    else
+        _int_type = int_type
+    end
+
+    # DLR grids
+    # NOTE: `symmetry = :sym` uses a DLR Matsubara grid that is symmetric around n = -1 for improved convergence of the SC loop
+    bdlr = DLRGrid(Euv, β, rtol, false, :ph)
+    fdlr = DLRGrid(Euv, β, rtol, true, :sym)
+
+    # Momentum grid maxima for G, Π, and Σ
+    maxKG = 4.3 * maxK
+    maxKP = 2.1 * maxK
+    maxKS = maxK
+
+    # Big grid for G
+    multiplier = 1
+    # multiplier = 2
+    # multiplier = 4
+    kGgrid = CompositeGrid.LogDensedGrid(
+        :cheb,
+        [0.0, maxKG],
+        [0.0, kF],
+        round(Int, multiplier * Nk),
+        0.01 * minK,
+        round(Int, multiplier * order),
+    )
+
+    # Medium grid for Π
+    qPgrid =
+        CompositeGrid.LogDensedGrid(:cheb, [0.0, maxKP], [0.0, 2 * kF], Nk, minK, order)
+
+    # Small grid for Σ
+    kSgrid = CompositeGrid.LogDensedGrid(:cheb, [0.0, maxKS], [0.0, kF], Nk, minK, order)
+
+    # Helper function to get the GW self-energy Σ[G, W](iωₙ, k) for a given int_type (W)
+    # NOTE: A large momentum grid is required for G and Σ at intermediate steps
+    function Σ_GW(G, Π)
+        # Get Σ_dyn(τ, k) and Σ_ins(k)
+        Σ_imtime, Σ_ins, _ = GW(
+            param,
+            G,
+            Π,
+            kSgrid;
+            Euv=Euv,
+            rtol=rtol,
+            # Nk=Nk,
+            maxK=maxKS,
+            minK=minK,
+            # order=order,
+            int_type=_int_type,
+            Fs=Fs,
+            Fa=Fa,
+        )
+        # Σ_dyn(τ, k) → Σ_dyn(iωₙ, k)
+        Σ = to_imfreq(to_dlr(Σ_imtime))
+        return Σ, Σ_ins
+    end
+
+    # Helper function to write data to JLD2 file
+    function write_to_file(key, val; write_mode="a", compress=true)
+        if save && rank == root
+            jldopen(joinpath(savedir, savename), write_mode; compress=compress) do file
+                file[string(key)] = val
+            end
+        end
+    end
+
+    # Get one-shot GW result
+    oneshot_data = initialize_g0w0_starting_point(
+        param,
+        bdlr,
+        fdlr,
+        kGgrid,
+        qPgrid,
+        kSgrid,
+        maxKS,
+        maxKP,
+        maxKG,
+        int_type,
+        Fs,
+        Fa,
+        Σ_GW;
+        verbose=rank == root,
+    )
+    if verbose
+        println_root("""
+        Calculated one-shot GW self-energy with:
+        • rs          = \t$(round(param.rs; sigdigits=13))
+        • m*/m        = \t$(oneshot_data.meff)
+        • Z           = \t$(oneshot_data.zfactor)
+        • δμ          = \t$(oneshot_data.dmu)
+        """)
+    end
+
+    # Write starting point to JLD2 file, overwriting any existing data
+    write_to_file("param", string(param); write_mode="w")
+    write_to_file(0, oneshot_data)
+    return oneshot_data.Σ, oneshot_data.Σ_ins
+end
+
 function Σ_LQSGW(
     param::Parameter.Para;
     Euv=1000 * param.EF,

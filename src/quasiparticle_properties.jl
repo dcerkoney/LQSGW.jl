@@ -287,3 +287,51 @@ function get_lqsgw_properties(
     end
     return (; atol, alpha, i_step, converged, meff, zfactor, dmu)
 end
+
+function get_g0w0_properties(
+    param::Parameter.Para;
+    Euv=1000 * param.EF,
+    rtol=1e-14,
+    Nk=14,
+    maxK=6 * param.kF,
+    minK=1e-8 * param.kF,
+    order=10,
+    int_type=:rpa,
+    Fs=0.0,
+    Fa=0.0,
+    verbose=false,
+    save=false,
+    savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
+    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
+)
+    @assert max_steps ≤ MAXIMUM_STEPS "max_steps must be ≤ $MAXIMUM_STEPS"
+    # No-op at rs = 0
+    if param.rs == 0.0
+        i_step = 0
+        converged = true
+        meff = 1.0
+        zfactor = 1.0
+        dmu = 0.0
+    else
+        Σ, Σ_ins = Σ_G0W0(
+            param,
+            Euv,
+            rtol,
+            Nk,
+            maxK,
+            minK,
+            order,
+            int_type,
+            Fs,
+            Fa,
+            verbose,
+            save,
+            savedir,
+            savename,
+        )
+        meff = massratio(param, Σ, Σ_ins, δK)[1]
+        zfactor = zfactor_fermi(param, Σ)
+        dmu = chemicalpotential(param, Σ, Σ_ins)
+    end
+    return (; meff, zfactor, dmu)
+end

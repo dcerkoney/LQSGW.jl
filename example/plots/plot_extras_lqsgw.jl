@@ -186,7 +186,7 @@ function load_data(
         try
             return f["$(key)_$(i_step)"]
         catch
-            error("One-shot ata not found for key = $key, i_step = $i_step")
+            error("One-shot data not found for key = $key, i_step = $i_step")
         end
     end
 end

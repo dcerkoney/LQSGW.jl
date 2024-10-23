@@ -30,6 +30,19 @@ rcParams["font.size"] = 16
 rcParams["mathtext.fontset"] = "cm"
 rcParams["font.family"] = "Times New Roman"
 
+pts = ["s", "^", "v", "p", "s", "<", "h", "o"]
+colors = [
+    cdict["blue"],
+    "grey",
+    cdict["teal"],
+    cdict["cyan"],
+    cdict["orange"],
+    cdict["magenta"],
+    cdict["red"],
+    "black",
+]
+reflabels = ["\$^*\$", "\$^\\dagger\$", "\$^\\ddagger\$"]
+
 """
 Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via interpolation of the 
 compressibility ratio data of Perdew & Wang (1992) [Phys. Rev. B 45, 13244].
@@ -65,32 +78,32 @@ function spline(x, y, e; xmin=0.0, xmax=x[end])
     return __x, yfit
 end
 
-function loadmeffnpz(
-    param::Parameter.Para,
-    int_type,
-    δK=5e-6,
-    max_steps=300,
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="lqsgw_$(param.dim)d_$(int_type)_merged.npz",
-)
-    meff = massratio(param, s, si, δK)[1]
-    zfactor = zfactor_fermi(param, s)
-    println("(rs = $(param.rs)) Loaded mass data from converged step $n_max")
-    return datadict
-end
+# function loadmeffnpz(
+#     param::Parameter.Para,
+#     int_type,
+#     δK=5e-6,
+#     max_steps=300,
+#     savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+#     savename="lqsgw_$(param.dim)d_$(int_type)_merged.npz",
+# )
+#     meff = massratio(param, s, si, δK)[1]
+#     zfactor = zfactor_fermi(param, s)
+#     println("(rs = $(param.rs)) Loaded mass data from converged step $n_max")
+#     return datadict
+# end
 
-function loadmeff(
+function loaddata_old_format(
     param::Parameter.Para,
     int_type,
     δK=5e-6,
-    max_steps=300,
     savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
     local n_max, s, si
     filename = joinpath(savedir, savename)
     jldopen(filename, "r") do f
-        for i in 0:max_steps
+        println(f)
+        for i in 0:(LQSGW.MAXIMUM_STEPS)
             try
                 s = f["Σ_$i"]
                 si = f["Σ_ins_$i"]
@@ -104,6 +117,54 @@ function loadmeff(
     zfactor = zfactor_fermi(param, s)
     println("(rs = $(param.rs)) Loaded mass data from converged step $n_max")
     return meff, zfactor
+end
+
+# New data
+function load_lqsgw_data_new_format(
+    param::Parameter.Para,
+    int_type,
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
+)
+    local data
+    max_step = -1
+    filename = joinpath(savedir, savename)
+    jldopen(filename, "r") do f
+        # Ensure that the saved data was convergent
+        @assert f["converged"] == true "Specificed save data did not converge!"
+        # Find the converged data in JLD2 file
+        for i in 0:(LQSGW.MAXIMUM_STEPS)
+            if haskey(f, string(i))
+                max_step = i
+                data = f[string(i)]
+            else
+                break
+            end
+        end
+        if max_step < 0
+            error("No data found in $(savedir)!")
+        end
+        println("Found converged data with max_step=$(max_step) for savename $(savename)!")
+    end
+    return data.meff, data.zfactor
+end
+function load_oneshot_data_new_format(
+    param::Parameter.Para,
+    int_type,
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
+)
+    local data
+    filename = joinpath(savedir, savename)
+    jldopen(filename, "r") do f
+        if haskey(f, string(1))
+            data = f[string(1)]
+        else
+            error("No one-shot data found in $(savedir)!")
+        end
+        println("Found one-shot data for savename $(savename)!")
+    end
+    return data.meff, data.zfactor
 end
 
 function plot_landaufunc(
@@ -260,7 +321,7 @@ function plot_landaufunc(
         # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\chi_0}{\\chi}\\Big)\$",
         color=cdict["cyan"],
     )
-    ax4.set_xticks(0:5)
+    # ax4.set_xticks(0:5)
     # ax4.set_xlim(0, 1)
     ax4.set_ylim(-0.05, 1.05)
     legend(; loc="best", ncol=2, fontsize=14)
@@ -408,8 +469,8 @@ function plot_mvsrs(
 
     # mfitfunc = interp.PchipInterpolator(rs, meff_data)
     mfitfunc = interp.Akima1DInterpolator(rs, meff_data)
-    # xgrid = np.arange(0, 6.2, 0.02)
-    xgrid = np.arange(0, 6.2, 0.02)
+    # xgrid = np.arange(0, 10.2, 0.02)
+    xgrid = np.arange(0, 10.2, 0.02)
     # ax.plot(rs, meff_data, 'o', ms=10, color=colors[idx])
     # ax.plot(xgrid, mfitfunc(xgrid), ls=ls, lw=2, color=colors[idx], label=label)
     if isnothing(zorder) == false
@@ -440,11 +501,13 @@ end
 
 function main()
     # UEG parameters
-    rslist = [0.01, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0]
+    # rslist = [0.01; 0.1; 0.5; collect(range(1, 10; step=0.5))]
+    rslist = collect(range(1, 10; step=0.5))
+    # rslist = [0.01, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0]
     beta = 40.0
     dim = 3
-    # constant_fs = true
-    constant_fs = false
+    constant_fs = true
+    # constant_fs = false
 
     # plot_landaufunc(beta, collect(sort!(unique!([1; LinRange(0.01, 5, 2001)]))); dir="")
     # plot_landaufunc(beta, [1]; dir="")
@@ -462,7 +525,13 @@ function main()
     @assert int_type_fp ∈ [:ko_const_p, :ko_takada_plus, :ko_moroni]
     @assert int_type_fp_fm ∈ [:ko_const_pm, :ko_takada, :ko_simion_giuliani]
 
-    # Load LQSGW data from npz files
+    # Load LQSGW and one-shot data from jld2 files
+    mefflist_os_g0w0 = []
+    mefflist_os_fp = []
+    mefflist_os_fp_fm = []
+    zlist_os_g0w0 = []
+    zlist_os_fp = []
+    zlist_os_fp_fm = []
     mefflist_g0w0 = []
     mefflist_fp = []
     mefflist_fp_fm = []
@@ -472,9 +541,20 @@ function main()
     for rs in rslist
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF, β = param
-        meff_g0w0, z_g0w0 = loadmeff(param, :rpa)
-        meff_fp, z_fp = loadmeff(param, int_type_fp)
-        meff_fp_fm, z_fp_fm = loadmeff(param, int_type_fp_fm)
+        # Load one-shot data
+        meff_os_g0w0, z_os_g0w0 = get_oneshot_data_new_format(param, :rpa)
+        meff_os_fp, z_os_fp = get_oneshot_data_new_format(param, int_type_fp)
+        meff_os_fp_fm, z_os_fp_fm = get_oneshot_data_new_format(param, int_type_fp_fm)
+        push!(mefflist_os_g0w0, meff_os_g0w0)
+        push!(mefflist_os_fp, meff_os_fp)
+        push!(mefflist_os_fp_fm, meff_os_fp_fm)
+        push!(zlist_os_g0w0, z_os_g0w0)
+        push!(zlist_os_fp, z_os_fp)
+        push!(zlist_os_fp_fm, z_os_fp_fm)
+        # Load LQSGW data
+        meff_g0w0, z_g0w0 = load_lqsgw_data_new_format(param, :rpa)
+        meff_fp, z_fp = load_lqsgw_data_new_format(param, int_type_fp)
+        meff_fp_fm, z_fp_fm = load_lqsgw_data_new_format(param, int_type_fp_fm)
         push!(mefflist_g0w0, meff_g0w0)
         push!(mefflist_fp, meff_fp)
         push!(mefflist_fp_fm, meff_fp_fm)
@@ -482,6 +562,19 @@ function main()
         push!(zlist_fp, z_fp)
         push!(zlist_fp_fm, z_fp_fm)
     end
+    pushfirst!(rslist, 0.0)
+    pushfirst!(mefflist_os_g0w0, 1.0)
+    pushfirst!(mefflist_os_fp, 1.0)
+    pushfirst!(mefflist_os_fp_fm, 1.0)
+    pushfirst!(mefflist_g0w0, 1.0)
+    pushfirst!(mefflist_fp, 1.0)
+    pushfirst!(mefflist_fp_fm, 1.0)
+    pushfirst!(zlist_os_g0w0, 1.0)
+    pushfirst!(zlist_os_fp, 1.0)
+    pushfirst!(zlist_os_fp_fm, 1.0)
+    pushfirst!(zlist_g0w0, 1.0)
+    pushfirst!(zlist_fp, 1.0)
+    pushfirst!(zlist_fp_fm, 1.0)
 
     rs_FlapwMBPT = [1, 2, 3, 4, 5]
     m_FlapwMBPT =
@@ -495,34 +588,44 @@ function main()
     ]
 
     rs_VDMC = [0, 0.5, 1, 2, 3, 4, 5, 6]
-    z_VDMC = [1.0, 0.95358, 0.94705, 0.93015, 0.90854, 0.92296, 0.91668, 0.89664]
-    z_VDMC_err = [0, 0.00365, 0.00858, 0.01441, 0.01951, 0.01810, 0.01984, 0.02427]
+    # z_VDMC = [1.0, 0.95358, 0.94705, 0.93015, 0.90854, 0.92296, 0.91668, 0.89664]
+    # z_VDMC_err = [0, 0.00365, 0.00858, 0.01441, 0.01951, 0.01810, 0.01984, 0.02427]
     m_VDMC = [1.0, 0.95893, 0.94947, 0.95206, 0.96035, 0.9706, 0.97885, 0.98626]
     m_VDMC_err = [0, 0.00037, 0.00019, 0.00084, 0.00016, 0.0014, 0.00036, 0.00229]
+
+    rs_VMC = [0, 1, 2, 4, 5, 10]
+    m_SJVMC = [1.0, 0.96, 0.94, 0.94, 1.02, 1.13]
+    m_SJVMC_err = [0, 0.01, 0.02, 0.02, 0.02, 0.03]
+    z_SJVMC = [1.0, 0.894, 0.82, 0.69, 0.61, 0.45]
+    z_SJVMC_err = [0, 0.009, 0.01, 0.01, 0.01, 0.01]
+
+    rs_DMC = [0, 1, 2, 3, 4, 5]
+    m_DMC = [1.0, 0.918, 0.879, 0.856, 0.842, 0.791]
+    m_DMC_err = [0, 0.006, 0.014, 0.014, 0.017, 0.01]
 
     # # Old VDMC results to N=5 with no infinite-order error estimation
     # m_VDMC = [1.0, 0.95893, 0.9514, 0.9516, 0.9597, 0.9692, 0.9771, 0.9842]
     # m_VDMC_err = [0, 0.00067, 0.0016, 0.0018, 0.0016, 0.0026, 0.0028, 0.0029]
     # rs_VDMC = [0, 0.5, 1, 2, 3, 4, 5, 6]
 
-    f_sigma_G0W0 = np.load("data/3d/rpa/meff_3d_sigma_G0W0.npz")
-    rs_G0W0 = f_sigma_G0W0.get("rslist")
-    m_G0W0 = f_sigma_G0W0.get("mefflist")
-    z_G0W0 = f_sigma_G0W0.get("zlist")
+    # f_sigma_G0W0 = np.load("data/3d/rpa/meff_3d_sigma_G0W0.npz")
+    # rs_G0W0 = f_sigma_G0W0.get("rslist")
+    # m_G0W0 = f_sigma_G0W0.get("mefflist")
+    # z_G0W0 = f_sigma_G0W0.get("zlist")
 
-    f_sigma_G0Wp = np.load("data/3d/$(int_type_fp)/meff_3d_sigma_G0Wp.npz")
-    # f_sigma_G0Wp = np.load(
-    #     "data/3d/ko_moroni/meff_3d_sigma_G0Wp.npz")
-    rs_G0Wp = f_sigma_G0Wp.get("rslist")
-    m_G0Wp = f_sigma_G0Wp.get("mefflist")
-    z_G0Wp = f_sigma_G0Wp.get("zlist")
+    # f_sigma_G0Wp = np.load("data/3d/$(int_type_fp)/meff_3d_sigma_G0Wp.npz")
+    # # f_sigma_G0Wp = np.load(
+    # #     "data/3d/ko_moroni/meff_3d_sigma_G0Wp.npz")
+    # rs_G0Wp = f_sigma_G0Wp.get("rslist")
+    # m_G0Wp = f_sigma_G0Wp.get("mefflist")
+    # z_G0Wp = f_sigma_G0Wp.get("zlist")
 
-    f_sigma_G0Wpm = np.load("data/3d/$(int_type_fp_fm)/meff_3d_sigma_G0Wpm.npz")
-    # f_sigma_G0Wpm = np.load(
-    #     "data/3d/ko_simion_giuliani/meff_3d_sigma_G0Wpm.npz")
-    rs_G0Wpm = f_sigma_G0Wpm.get("rslist")
-    m_G0Wpm = f_sigma_G0Wpm.get("mefflist")
-    z_G0Wpm = f_sigma_G0Wpm.get("zlist")
+    # f_sigma_G0Wpm = np.load("data/3d/$(int_type_fp_fm)/meff_3d_sigma_G0Wpm.npz")
+    # # f_sigma_G0Wpm = np.load(
+    # #     "data/3d/ko_simion_giuliani/meff_3d_sigma_G0Wpm.npz")
+    # rs_G0Wpm = f_sigma_G0Wpm.get("rslist")
+    # m_G0Wpm = f_sigma_G0Wpm.get("mefflist")
+    # z_G0Wpm = f_sigma_G0Wpm.get("zlist")
 
     # f_tree_level_G0W0 = np.load("data/3d/rpa/meff_3d_tree_level_G0W0.npz")
     # rs_tree_level_G0W0 = f_tree_level_G0W0.get("rslist")
@@ -531,19 +634,6 @@ function main()
     # f_tree_level_G0Wp = np.load("data/3d/$(int_type_fp)/meff_3d_tree_level_G0Wp.npz")
     # rs_tree_level_G0Wp = f_tree_level_G0Wp.get("rslist")
     # m_tree_level_G0Wp = f_tree_level_G0Wp.get("mefflist")
-
-    colors = [
-        cdict["blue"],
-        "grey",
-        cdict["teal"],
-        cdict["cyan"],
-        cdict["orange"],
-        cdict["magenta"],
-        cdict["red"],
-        "black",
-    ]
-    pts = ["s", "^", "v", "p", "s", "<", "h", "o"]
-    reflabels = ["\$^*\$", "\$^\\dagger\$", "\$^\\ddagger\$"]
 
     # High-density limit
     rs_HDL_plot = np.linspace(1e-5, 0.35; num=101)
@@ -594,8 +684,7 @@ function main()
     )
 
     indices = [2, 3, 4]
-    rs_RPA = [rs_G0W0, rs_G0Wp, rs_G0Wpm]
-    m_RPA = [m_G0W0, m_G0Wp, m_G0Wpm]
+    meff_oneshot = [mefflist_os_g0w0, mefflist_os_fp, mefflist_os_fp_fm]
     labels = [
         "\$G_0 W_0\$",
         # "\$G_0 \\mathcal{W}^+_{0}\$",
@@ -605,11 +694,11 @@ function main()
         # "\$G_0 W^+_\\text{KO}\$$(reflabels[2])",
         # "\$G_0 W_\\text{KO}\$$(reflabels[2])",
     ]
-    for (rsdat, mdat, label, idx) in zip(rs_RPA, m_RPA, labels, indices)
+    for (mefflist, label, idx) in zip(meff_oneshot, labels, indices)
         print("\nPlotting ", label)
         handle = plot_mvsrs(
-            rsdat[rsdat .≤ 5],
-            mdat[rsdat .≤ 5],
+            rslist,
+            mefflist,
             idx,
             label,
             ax;
@@ -631,7 +720,7 @@ function main()
         meff_HDL=meff_HDL,
         zorder=10,
     )
-    ax.scatter(rslist, mefflist_g0w0, 20; color=colors[5], zorder=10, facecolors="none")
+    # ax.scatter(rslist, mefflist_g0w0, 20; color=colors[5], zorder=10, facecolors="none")
 
     plot_mvsrs(
         rslist,
@@ -645,7 +734,7 @@ function main()
         meff_HDL=meff_HDL,
         zorder=20,
     )
-    ax.scatter(rslist, mefflist_fp, 20; color=colors[6], zorder=20, facecolors="none")
+    # ax.scatter(rslist, mefflist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
     plot_mvsrs(
         rslist,
@@ -659,7 +748,7 @@ function main()
         meff_HDL=meff_HDL,
         zorder=30,
     )
-    ax.scatter(rslist, mefflist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
+    # ax.scatter(rslist, mefflist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
     # ax.plot(rslist, mefflist_g0w0, "o-"; label="LQSGW", color=color[2])
     # ax.plot(rslist, mefflist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
     # ax.plot(rslist, mefflist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
@@ -674,11 +763,11 @@ function main()
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
     end
-    ax.set_ylim(0.94, 1.25)
-    ax.set_xticks(0:5)
+    ax.set_ylim(0.94, 1.45)
+    ax.set_xticks(0:2:10)
     ax.set_xlabel("\$r_s\$")
     ax.set_ylabel("\$m^* / m\$")
-    ax.legend(; fontsize=12)
+    ax.legend(; fontsize=12, loc="upper left")
     plt.tight_layout()
     fig.savefig("meff_lqsgw_vs_rs_$(fsstr).pdf")
 
@@ -694,15 +783,17 @@ function main()
     #     "",
     #     ax;
     #     ls="-",
-    #     rs_HDL=rs_HDL,
-    #     meff_HDL=meff_HDL,
     #     zorder=1000,
     # )
 
+    # VMC results
+    errorbar_mvsrs(rs_VMC, z_SJVMC, z_SJVMC_err, 8, "VMC", ax; zorder=1000)
+    # plot_mvsrs(rs_VMC, z_SJVMC, 8, "", ax; ls="-", zorder=1000)
+
     # Digitized data from Kutepov 3DUEG LQSGW paper
     ax.scatter(
-        rs_QSGW,
-        z_QSGW,
+        rs_FlapwMBPT,
+        z_FlapwMBPT,
         15;
         marker="s",
         label="FlapwMBPT",
@@ -711,8 +802,7 @@ function main()
     )
 
     indices = [2, 3, 4]
-    rs_RPA = [rs_G0W0, rs_G0Wp, rs_G0Wpm]
-    z_RPA = [z_G0W0, z_G0Wp, z_G0Wpm]
+    z_oneshot = [zlist_os_g0w0, zlist_os_fp, zlist_os_fp_fm]
     labels = [
         "\$G_0 W_0\$",
         # "\$G_0 \\mathcal{W}^+_{0}\$",
@@ -722,17 +812,17 @@ function main()
         # "\$G_0 W^+_\\text{KO}\$$(reflabels[2])",
         # "\$G_0 W_\\text{KO}\$$(reflabels[2])",
     ]
-    for (rsdat, zdat, label, idx) in zip(rs_RPA, z_RPA, labels, indices)
+    for (zlist, label, idx) in zip(z_oneshot, labels, indices)
         print("\nPlotting ", label)
-        handle = plot_mvsrs(rsdat[rsdat .≤ 5], zdat[rsdat .≤ 5], idx, label, ax; ls="--")
+        handle = plot_mvsrs(rslist, zlist, idx, label, ax; ls="--")
         # l1_handles.append(handle)
     end
 
     plot_mvsrs(rslist, zlist_g0w0, 5, "LQSGW", ax; ls="--", zorder=10)
-    ax.scatter(rslist, zlist_g0w0, 20; color=colors[5], zorder=10, facecolors="none")
+    # ax.scatter(rslist, zlist_g0w0, 20; color=colors[5], zorder=10, facecolors="none")
 
     plot_mvsrs(rslist, zlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="--", zorder=20)
-    ax.scatter(rslist, zlist_fp, 20; color=colors[6], zorder=20, facecolors="none")
+    # ax.scatter(rslist, zlist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
     plot_mvsrs(
         rslist,
@@ -745,7 +835,7 @@ function main()
         # meff_HDL=meff_HDL,
         zorder=30,
     )
-    ax.scatter(rslist, zlist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
+    # ax.scatter(rslist, zlist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
     # ax.plot(rslist, zlist_g0w0, "o-"; label="LQSGW", color=color[2])
     # ax.plot(rslist, zlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
 
@@ -759,8 +849,8 @@ function main()
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
     end
-    ax.set_ylim(0.54, 1.04)
-    ax.set_xticks(0:5)
+    ax.set_ylim(0.44, 1.04)
+    ax.set_xticks(0:2:10)
     ax.set_xlabel("\$r_s\$")
     ax.set_ylabel("\$Z_F\$")
     ax.legend(; loc="upper right", fontsize=12)
