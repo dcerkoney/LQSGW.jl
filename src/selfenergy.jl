@@ -574,6 +574,16 @@ function Σ_G0W0(
         Σ_GW;
         verbose=true,
     )
+
+    # Get quasiparticle properties from Σ_G0W0
+    dmu_g0w0 = chemicalpotential(param, Σ_prev, Σ_ins_prev)
+    meff_g0w0 = massratio(param, Σ_prev, Σ_ins_prev, δK)[1]
+    zfactor_g0w0 = zfactor_fermi(param, Σ_prev)
+
+    # The one-shot method uses the quasiparticle properties of Σ_G0W0
+    oneshot_data =
+        reconstruct(oneshot_data; dmu=dmu_g0w0, meff=meff_g0w0, zfactor=zfactor_g0w0)
+
     if verbose
         println("""
         Calculated one-shot GW self-energy with:

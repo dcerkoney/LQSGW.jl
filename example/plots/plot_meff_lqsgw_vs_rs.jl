@@ -157,8 +157,8 @@ function load_oneshot_data_new_format(
     local data
     filename = joinpath(savedir, savename)
     jldopen(filename, "r") do f
-        if haskey(f, string(1))
-            data = f[string(1)]
+        if haskey(f, string(0))
+            data = f[string(0)]
         else
             error("No one-shot data found in $(savedir)!")
         end
@@ -542,9 +542,9 @@ function main()
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF, β = param
         # Load one-shot data
-        meff_os_g0w0, z_os_g0w0 = get_oneshot_data_new_format(param, :rpa)
-        meff_os_fp, z_os_fp = get_oneshot_data_new_format(param, int_type_fp)
-        meff_os_fp_fm, z_os_fp_fm = get_oneshot_data_new_format(param, int_type_fp_fm)
+        meff_os_g0w0, z_os_g0w0 = load_oneshot_data_new_format(param, :rpa)
+        meff_os_fp, z_os_fp = load_oneshot_data_new_format(param, int_type_fp)
+        meff_os_fp_fm, z_os_fp_fm = load_oneshot_data_new_format(param, int_type_fp_fm)
         push!(mefflist_os_g0w0, meff_os_g0w0)
         push!(mefflist_os_fp, meff_os_fp)
         push!(mefflist_os_fp_fm, meff_os_fp_fm)
