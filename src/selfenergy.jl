@@ -433,6 +433,7 @@ function Σ_G0W0(
     minK=1e-8 * param.kF,
     order=10,
     int_type=:rpa,
+    δK=5e-6,
     Fs=0.0,
     Fa=0.0,
     verbose=false,
@@ -449,6 +450,7 @@ function Σ_G0W0(
         minK,
         order,
         int_type,
+        δK,
         Fs,
         Fa,
         verbose,
@@ -467,6 +469,7 @@ function Σ_G0W0(
     minK,
     order,
     int_type,
+    δK,
     Fs,
     Fa,
     verbose,
@@ -576,9 +579,9 @@ function Σ_G0W0(
     )
 
     # Get quasiparticle properties from Σ_G0W0
-    dmu_g0w0 = chemicalpotential(param, Σ_prev, Σ_ins_prev)
-    meff_g0w0 = massratio(param, Σ_prev, Σ_ins_prev, δK)[1]
-    zfactor_g0w0 = zfactor_fermi(param, Σ_prev)
+    dmu_g0w0 = chemicalpotential(param, oneshot_data.Σ, oneshot_data.Σ_ins)
+    meff_g0w0 = massratio(param, oneshot_data.Σ, oneshot_data.Σ_ins, δK)[1]
+    zfactor_g0w0 = zfactor_fermi(param, oneshot_data.Σ)
 
     # The one-shot method uses the quasiparticle properties of Σ_G0W0
     oneshot_data =

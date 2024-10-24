@@ -324,6 +324,7 @@ function get_g0w0_properties(
             minK,
             order,
             int_type,
+            δK,
             Fs,
             Fa,
             verbose,
