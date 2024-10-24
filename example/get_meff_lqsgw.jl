@@ -192,6 +192,9 @@ function main()
         # Get Fermi liquid parameter F⁰ₛ(rs) from Perdew-Wang fit
         Fs = get_Fs_PW(rs)
         Fa = get_Fa_PW(rs)
+        if param.rs > 0.25
+            @assert Fs > 0 && Fa > 0 "Incorrect signs for Fs/Fa!"
+        end
         # Compute LQSGW quasiparticle properties
         println_root("Calculating LQSGW quasiparticle properties for rs = $rs...")
         data_rpa = []

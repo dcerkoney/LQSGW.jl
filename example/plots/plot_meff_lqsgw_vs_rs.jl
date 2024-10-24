@@ -124,27 +124,38 @@ function load_lqsgw_data_new_format(
     param::Parameter.Para,
     int_type,
     savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
+    savename="lqsgw_$(param.dim)d_$(int_type)_final.jld2";
+    # savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
 )
     local data
-    max_step = -1
+    # max_step = -1
     filename = joinpath(savedir, savename)
     jldopen(filename, "r") do f
-        # Ensure that the saved data was convergent
-        @assert f["converged"] == true "Specificed save data did not converge!"
-        # Find the converged data in JLD2 file
-        for i in 0:(LQSGW.MAXIMUM_STEPS)
-            if haskey(f, string(i))
-                max_step = i
-                data = f[string(i)]
-            else
-                break
-            end
+        # # Ensure that the saved data was convergent
+        # @assert f["converged"] == true "Specificed save data did not converge!"
+        # # Find the converged data in JLD2 file
+        # for i in 0:(LQSGW.MAXIMUM_STEPS)
+        #     if haskey(f, string(i))
+        #         max_step = i
+        #         data = f[string(i)]
+        #     else
+        #         break
+        #     end
+        # end
+        # if max_step < 0
+        #     error("No data found in $(savedir)!")
+        # end
+        # println("Found converged data with max_step=$(max_step) for savename $(savename)!")
+        _rs = round(param.rs; sigdigits=4)
+        if haskey(f, string(_rs))
+            data = f[string(_rs)]
+            @assert data.converged == true "Specificed save data did not converge!"
+            println(
+                "Found converged data with max_step=$(data.i_step) at rs=$(_rs) for savename $(savename)!",
+            )
+        else
+            error("No data for rs = $(_rs) found in $(savedir)!")
         end
-        if max_step < 0
-            error("No data found in $(savedir)!")
-        end
-        println("Found converged data with max_step=$(max_step) for savename $(savename)!")
     end
     return data.meff, data.zfactor
 end
@@ -152,17 +163,24 @@ function load_oneshot_data_new_format(
     param::Parameter.Para,
     int_type,
     savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
+    savename="oneshot_gw_$(param.dim)d_$(int_type)_final.jld2";
+    # savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
 )
     local data
     filename = joinpath(savedir, savename)
     jldopen(filename, "r") do f
-        if haskey(f, string(0))
-            data = f[string(0)]
+        # if haskey(f, string(0))
+        #     data = f[string(0)]
+        # else
+        #     error("No one-shot data found in $(savedir)!")
+        # end
+        # println("Found one-shot data for savename $(savename)!")
+        _rs = round(param.rs; sigdigits=4)
+        if haskey(f, string(_rs))
+            data = f[string(_rs)]
         else
-            error("No one-shot data found in $(savedir)!")
+            error("No data for rs=$(_rs) found in $(savedir)!")
         end
-        println("Found one-shot data for savename $(savename)!")
     end
     return data.meff, data.zfactor
 end
@@ -649,39 +667,17 @@ function main()
     # Plot m*/m convergence
     fig, ax = plt.subplots(; figsize=(5, 5))
 
-    # VDMC results from this work
-    errorbar_mvsrs(
-        rs_VDMC[1:(end - 1)],
-        m_VDMC[1:(end - 1)],
-        m_VDMC_err[1:(end - 1)],
-        8,
-        "VDMC",
-        ax;
-        zorder=0,
-    )
-    plot_mvsrs(
-        rs_VDMC[1:(end - 1)],
-        m_VDMC[1:(end - 1)],
-        8,
-        "",
-        ax;
-        ls="-",
-        rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
-        # zorder=0,
-    )
-
-    # Digitized data from Kutepov 3DUEG FlapwMBPT paper
-    ax.scatter(
-        rs_FlapwMBPT[2:end],
-        m_FlapwMBPT,
-        15;
-        marker="s",
-        label="FlapwMBPT",
-        # label="FlapwMBPT$(reflabels[1])",
-        color=colors[1],
-        zorder=100,
-    )
+    # # Digitized data from Kutepov 3DUEG FlapwMBPT paper
+    # ax.scatter(
+    #     rs_FlapwMBPT[2:end],
+    #     m_FlapwMBPT,
+    #     15;
+    #     marker="s",
+    #     label="FlapwMBPT",
+    #     # label="FlapwMBPT$(reflabels[1])",
+    #     color=colors[1],
+    #     zorder=100,
+    # )
 
     indices = [2, 3, 4]
     meff_oneshot = [mefflist_os_g0w0, mefflist_os_fp, mefflist_os_fp_fm]
@@ -753,9 +749,33 @@ function main()
     # ax.plot(rslist, mefflist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
     # ax.plot(rslist, mefflist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
 
+    # VMC results
+    errorbar_mvsrs(rs_VMC[2:end], m_SJVMC[2:end], m_SJVMC_err[2:end], 1, "VMC", ax; zorder=500)
+
+    # VDMC results from this work
+    errorbar_mvsrs(
+        rs_VDMC[2:(end - 1)],
+        m_VDMC[2:(end - 1)],
+        m_VDMC_err[2:(end - 1)],
+        8,
+        "This work",
+        ax;
+        zorder=1000,
+    )
+    # plot_mvsrs(
+    #     rs_VDMC[1:(end - 1)],
+    #     m_VDMC[1:(end - 1)],
+    #     8,
+    #     "",
+    #     ax;
+    #     ls="-",
+    #     rs_HDL=rs_HDL,
+    #     meff_HDL=meff_HDL,
+    # )
+
     if constant_fs
         ax.set_title(
-            "Constant \$F^\\pm(q)\$";
+            "Constant \$F_\\pm\$";
             # "\$F^+(q) \\approx 1 - {\\kappa_0}/{\\kappa},\\; F^-(q) \\approx 1 - {\\chi_0}/{\\chi}\$";
             pad=10,
             fontsize=16,
@@ -763,7 +783,7 @@ function main()
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
     end
-    ax.set_ylim(0.94, 1.45)
+    ax.set_ylim(0.91, 1.43)
     ax.set_xticks(0:2:10)
     ax.set_xlabel("\$r_s\$")
     ax.set_ylabel("\$m^* / m\$")
@@ -786,20 +806,16 @@ function main()
     #     zorder=1000,
     # )
 
-    # VMC results
-    errorbar_mvsrs(rs_VMC, z_SJVMC, z_SJVMC_err, 8, "VMC", ax; zorder=1000)
-    # plot_mvsrs(rs_VMC, z_SJVMC, 8, "", ax; ls="-", zorder=1000)
-
-    # Digitized data from Kutepov 3DUEG LQSGW paper
-    ax.scatter(
-        rs_FlapwMBPT,
-        z_FlapwMBPT,
-        15;
-        marker="s",
-        label="FlapwMBPT",
-        color=colors[1],
-        zorder=100,
-    )
+    # # Digitized data from Kutepov 3DUEG LQSGW paper
+    # ax.scatter(
+    #     rs_FlapwMBPT,
+    #     z_FlapwMBPT,
+    #     15;
+    #     marker="s",
+    #     label="FlapwMBPT",
+    #     color=colors[1],
+    #     zorder=100,
+    # )
 
     indices = [2, 3, 4]
     z_oneshot = [zlist_os_g0w0, zlist_os_fp, zlist_os_fp_fm]
@@ -839,9 +855,13 @@ function main()
     # ax.plot(rslist, zlist_g0w0, "o-"; label="LQSGW", color=color[2])
     # ax.plot(rslist, zlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
 
+    # VMC results
+    errorbar_mvsrs(rs_VMC[2:end], z_SJVMC[2:end], z_SJVMC_err[2:end], 1, "VMC", ax; zorder=500)
+    # plot_mvsrs(rs_VMC, z_SJVMC, 8, "", ax; ls="-", zorder=1000)
+
     if constant_fs# ax.plot(rslist, zlist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
         ax.set_title(
-            "Constant \$F^\\pm(q)\$";
+            "Constant \$F_\\pm\$";
             # "\$F^+(q) \\approx 1 - {\\kappa_0}/{\\kappa},\\; F^-(q) \\approx 1 - {\\chi_0}/{\\chi}\$";
             pad=10,
             fontsize=16,
@@ -849,7 +869,7 @@ function main()
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
     end
-    ax.set_ylim(0.44, 1.04)
+    ax.set_ylim(0.42, 1.02)
     ax.set_xticks(0:2:10)
     ax.set_xlabel("\$r_s\$")
     ax.set_ylabel("\$Z_F\$")
