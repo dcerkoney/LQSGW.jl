@@ -568,7 +568,7 @@ function Σ_G0W0(
         maxKS,
         maxKP,
         maxKG,
-        int_type,
+        _int_type,
         Fs,
         Fa,
         Σ_GW;
