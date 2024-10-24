@@ -49,7 +49,7 @@ function main()
     constant_fs = true
 
     calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => true)
-    rslist = [0.01; 0.1; 0.5; collect(range(1.0, 10.0; step=0.5))]
+    rslist = [0.01; 0.25; 0.5; 0.75; collect(range(1.0, 10.0; step=0.5))]
 
     # NOTE: int_type ∈ [:ko_const, :ko_takada_plus, :ko_takada, :ko_moroni, :ko_simion_giuliani] 
     # NOTE: KO interaction using G+ and/or G- is currently only available in 3D
