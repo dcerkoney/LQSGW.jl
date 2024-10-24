@@ -305,7 +305,7 @@ function get_g0w0_properties(
     verbose=false,
     save=false,
     savedir="$(DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
+    savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
 )
     # No-op at rs = 0
     if param.rs == 0.0
