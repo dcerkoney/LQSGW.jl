@@ -299,6 +299,7 @@ function get_g0w0_properties(
     minK=1e-8 * param.kF,
     order=10,
     int_type=:rpa,
+    δK=5e-6,
     Fs=0.0,
     Fa=0.0,
     verbose=false,
