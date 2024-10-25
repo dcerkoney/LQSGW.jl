@@ -22,6 +22,7 @@ const cdict = Dict([
     "red" => "#CC3311",
     "teal" => "#009988",
     "grey" => "#BBBBBB",
+    "yellow" => "#CCBB44",  # from bright color scheme
 ]);
 style = PyPlot.matplotlib."style"
 style.use(["science", "std-colors"])
@@ -30,7 +31,7 @@ rcParams["font.size"] = 16
 rcParams["mathtext.fontset"] = "cm"
 rcParams["font.family"] = "Times New Roman"
 
-pts = ["s", "^", "v", "p", "s", "<", "h", "o"]
+pts = ["s", "^", "v", "p", "s", "<", "h", "o", "^"]
 colors = [
     cdict["blue"],
     "grey",
@@ -40,6 +41,7 @@ colors = [
     cdict["magenta"],
     cdict["red"],
     "black",
+    cdict["yellow"],
 ]
 reflabels = ["\$^*\$", "\$^\\dagger\$", "\$^\\ddagger\$"]
 
@@ -606,8 +608,8 @@ function main()
     ]
 
     rs_VDMC = [0, 0.5, 1, 2, 3, 4, 5, 6]
-    # z_VDMC = [1.0, 0.95358, 0.94705, 0.93015, 0.90854, 0.92296, 0.91668, 0.89664]
-    # z_VDMC_err = [0, 0.00365, 0.00858, 0.01441, 0.01951, 0.01810, 0.01984, 0.02427]
+    z_VDMC = [1.0, 0.95358, 0.94705, 0.93015, 0.90854, 0.92296, 0.91668, 0.89664]
+    z_VDMC_err = [0, 0.00365, 0.00858, 0.01441, 0.01951, 0.01810, 0.01984, 0.02427]
     m_VDMC = [1.0, 0.95893, 0.94947, 0.95206, 0.96035, 0.9706, 0.97885, 0.98626]
     m_VDMC_err = [0, 0.00037, 0.00019, 0.00084, 0.00016, 0.0014, 0.00036, 0.00229]
 
@@ -750,7 +752,18 @@ function main()
     # ax.plot(rslist, mefflist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
 
     # VMC results
-    errorbar_mvsrs(rs_VMC[2:end], m_SJVMC[2:end], m_SJVMC_err[2:end], 1, "VMC", ax; zorder=500)
+    errorbar_mvsrs(
+        rs_VMC[2:end],
+        m_SJVMC[2:end],
+        m_SJVMC_err[2:end],
+        1,
+        "VMC",
+        ax;
+        zorder=500,
+    )
+
+    # # DMC results
+    # errorbar_mvsrs(rs_DMC[2:end], m_DMC[2:end], m_DMC_err[2:end], 9, "DMC", ax; zorder=750)
 
     # VDMC results from this work
     errorbar_mvsrs(
@@ -793,18 +806,6 @@ function main()
 
     # Plot Z convergence
     fig, ax = plt.subplots(; figsize=(5, 5))
-
-    # # VDMC results from this work (Z does not converge!)
-    # errorbar_mvsrs(rs_VDMC, z_VDMC, z_VDMC_err, 8, "VDMC", ax; zorder=1000)
-    # plot_mvsrs(
-    #     rs_VDMC,
-    #     z_VDMC,
-    #     8,
-    #     "",
-    #     ax;
-    #     ls="-",
-    #     zorder=1000,
-    # )
 
     # # Digitized data from Kutepov 3DUEG LQSGW paper
     # ax.scatter(
@@ -856,8 +857,28 @@ function main()
     # ax.plot(rslist, zlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
 
     # VMC results
-    errorbar_mvsrs(rs_VMC[2:end], z_SJVMC[2:end], z_SJVMC_err[2:end], 1, "VMC", ax; zorder=500)
+    errorbar_mvsrs(
+        rs_VMC[2:end],
+        z_SJVMC[2:end],
+        z_SJVMC_err[2:end],
+        1,
+        "VMC",
+        ax;
+        zorder=500,
+    )
     # plot_mvsrs(rs_VMC, z_SJVMC, 8, "", ax; ls="-", zorder=1000)
+
+    # # VDMC results from this work (Z does not converge!)
+    # errorbar_mvsrs(
+    #     rs_VDMC[2:end],
+    #     z_VDMC[2:end],
+    #     z_VDMC_err[2:end],
+    #     8,
+    #     "VDMC",
+    #     ax;
+    #     zorder=1000,
+    # )
+    # # plot_mvsrs(rs_VDMC[2:end], z_VDMC[2:end], 8, "", ax; ls="-", zorder=1000)
 
     if constant_fs# ax.plot(rslist, zlist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
         ax.set_title(
