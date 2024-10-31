@@ -521,9 +521,8 @@ end
 
 function main()
     # UEG parameters
-    # rslist = [0.01; 0.1; 0.5; collect(range(1, 10; step=0.5))]
-    rslist = collect(range(1, 10; step=0.5))
-    # rslist = [0.01, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0]
+    rslist = [0.01; 0.25; 0.5; 0.75; collect(range(1, 10; step=0.5))]
+    # rslist = collect(range(1, 10; step=0.5))
     beta = 40.0
     dim = 3
     constant_fs = true
@@ -713,7 +712,7 @@ function main()
         5,
         "LQSGW",
         ax;
-        ls="--",
+        ls="-",
         rs_HDL=rs_HDL,
         meff_HDL=meff_HDL,
         zorder=10,
@@ -727,7 +726,7 @@ function main()
         # "LQSG\$\\mathcal{W}^+\$",
         "LQSGW\$^\\text{KO}_+\$",
         ax;
-        ls="--",
+        ls="-",
         rs_HDL=rs_HDL,
         meff_HDL=meff_HDL,
         zorder=20,
@@ -741,7 +740,7 @@ function main()
         # "LQSG\$\\mathcal{W}\$",
         "LQSGW\$^\\text{KO}\$",
         ax;
-        ls="--",
+        ls="-",
         rs_HDL=rs_HDL,
         meff_HDL=meff_HDL,
         zorder=30,
@@ -835,10 +834,10 @@ function main()
         # l1_handles.append(handle)
     end
 
-    plot_mvsrs(rslist, zlist_g0w0, 5, "LQSGW", ax; ls="--", zorder=10)
+    plot_mvsrs(rslist, zlist_g0w0, 5, "LQSGW", ax; ls="-", zorder=10)
     # ax.scatter(rslist, zlist_g0w0, 20; color=colors[5], zorder=10, facecolors="none")
 
-    plot_mvsrs(rslist, zlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="--", zorder=20)
+    plot_mvsrs(rslist, zlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
     # ax.scatter(rslist, zlist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
     plot_mvsrs(
@@ -847,7 +846,7 @@ function main()
         7,
         "LQSGW\$^\\text{KO}\$",
         ax;
-        ls="--",
+        ls="-",
         # rs_HDL=rs_HDL,
         # meff_HDL=meff_HDL,
         zorder=30,

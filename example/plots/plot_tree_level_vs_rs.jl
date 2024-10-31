@@ -118,16 +118,16 @@ end
 
 function integrand_F0p(x, rs_tilde, Fs=0.0)
     if isinf(rs_tilde)
-        return -2 * x / lindhard(x)
+        return -x / lindhard(x)
     end
     coeff = rs_tilde + Fs * x^2
     NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x))
-    return -2 * x * NF_times_Rp_ex
+    return -x * NF_times_Rp_ex
 end
 
 function integrand_F0m(x, Fa=0.0)
     NF_times_Rm_ex = Fa / (1 + Fa * lindhard(x))
-    return -2 * x * NF_times_Rm_ex
+    return -x * NF_times_Rm_ex
 end
 
 function integrand_F0(x, rs_tilde, Fs=0.0, Fa=0.0)
@@ -254,7 +254,8 @@ function plot_integrand_F0p(; sign_Fsa=-1.0)
     ax.set_ylabel("\$I_0[W](x)\$")
     ax.legend(; fontsize=10, loc="best", ncol=2)
     xlim(0, 1)
-    ylim(-4.25, 2.25)
+    ylim(-2.125, 1.125)
+    # ylim(-4.25, 2.25)
     # tight_layout()
     signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
     fig.savefig("integrand_F0p_$(signstr_Fsa).pdf")
@@ -295,7 +296,8 @@ function plot_integrand_F1p(; sign_Fsa=-1.0)
     ax.set_ylabel("\$I_1[W](x)\$")
     ax.legend(; fontsize=10, loc="best", ncol=2)
     xlim(0, 1)
-    ylim(-2.25, 4.25)
+    ylim(-1.125, 2.125)
+    # ylim(-2.25, 4.25)
     # tight_layout()
     signstr_Fsa = sign_Fsa > 0 ? "Fs_Fa_positive" : "Fs_Fa_negative"
     fig.savefig("integrand_F1p_$(signstr_Fsa).pdf")
@@ -316,26 +318,27 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=-1.0)
     println("F⁺₀[W₀](∞) = $(F0p_RPA_inf)")
     println("F⁺₁[W₀](∞) = $(F1p_RPA_inf)")
     for rs in rslist
+        rstilde = rs * alpha_ueg / π
         Fs = sign_Fsa * get_Fs_PW(rs)
         Fa = sign_Fsa * get_Fa_PW(rs)
         # if rs > 0.25
         #     @assert Fs < 0 && Fa < 0 "Incorrect signs for Fs/Fa!"
         # end
         # RPA
-        y_RPA = [integrand_F0p(x, rs * alpha_ueg / π) for x in xgrid]
+        y_RPA = [integrand_F0p(x, rstilde) for x in xgrid]
         val_RPA = CompositeGrids.Interp.integrate1D(y_RPA, xgrid)
         push!(F0p_RPA, val_RPA)
         # KO+
-        y_KOp = [integrand_F0p(x, rs * alpha_ueg / π, Fs) for x in xgrid]
-        val_KOp = Fs + CompositeGrids.Interp.integrate1D(y_KOp, xgrid)
+        y_KOp = [integrand_F0p(x, rstilde, Fs) for x in xgrid]
+        val_KOp = (Fs / 2) + CompositeGrids.Interp.integrate1D(y_KOp, xgrid)
         push!(F0p_KOp, val_KOp)
         # KO-
         y_KOm = [integrand_F0m(x, Fa) for x in xgrid]
-        val_KOm = Fa + CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
+        val_KOm = (Fa / 2) + CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
         push!(F0p_KOm, val_KOm)
         # KO
-        Fse = (Fs + 3 * Fa)
-        y_KO = [integrand_F0(x, rs * alpha_ueg / π, Fs, Fa) for x in xgrid]
+        Fse = (Fs + 3 * Fa) / 2
+        y_KO = [integrand_F0(x, rstilde, Fs, Fa) for x in xgrid]
         val_KO = Fse + CompositeGrids.Interp.integrate1D(y_KO, xgrid)
         push!(F0p_KO, val_KO)
     end
@@ -344,12 +347,7 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=-1.0)
         ax.plot(rslist, F0p_RPA; color="black", label="\$W_0\$")
         ax.plot(rslist, F0p_KOp; color=cdict["blue"], label="\$W^\\text{KO}_{0,+}\$")
         ax.plot(rslist, F0p_KOm; color=cdict["teal"], label="\$W^\\text{KO}_{0,-}\$")
-        ax.plot(
-            rslist,
-            F0p_KO;
-            color=cdict["red"],
-            label="\$W^\\text{KO}_{0} = W^\\text{KO}_{0,+} + 3 W^\\text{KO}_{0,-}\$",
-        )
+        ax.plot(rslist, F0p_KO; color=cdict["red"], label="\$W^\\text{KO}_{0}\$")
         labelstr =
             sign_Fsa > 0 ? "\$-F^+ = 1 - \\kappa_0 / \\kappa\$" :
             "\$F^+ = \\kappa_0 / \\kappa - 1\$"
@@ -366,9 +364,11 @@ function get_analytic_F0p(rslist; plot=false, sign_Fsa=-1.0)
         # ylim(-1.1, 0.6)
         xlim(0, 10)
         if sign_Fsa < 0
-            ylim(-3.2, 0.6)
+            ylim(-1.6, 0.3)
+            # ylim(-3.2, 0.6)
         else
-            ylim(-1.2, 3.8)
+            ylim(-0.6, 1.9)
+            # ylim(-1.2, 3.8)
         end
         ax.legend(; fontsize=10, loc="best")
         # tight_layout()
@@ -387,17 +387,18 @@ function get_analytic_F1p(rslist; plot=false, sign_Fsa=-1.0)
     F1p_KO = []
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
     for rs in rslist
+        rstilde = rs * alpha_ueg / π
         Fs = sign_Fsa * get_Fs_PW(rs)
         Fa = sign_Fsa * get_Fa_PW(rs)
         # if rs > 0.25
         #     @assert Fs < 0 && Fa < 0 "Incorrect signs for Fs/Fa!"
         # end
         # RPA
-        y_RPA = [integrand_F1p(x, rs * alpha_ueg / π) for x in xgrid]
+        y_RPA = [integrand_F1p(x, rstilde) for x in xgrid]
         val_RPA = CompositeGrids.Interp.integrate1D(y_RPA, xgrid)
         push!(F1p_RPA, val_RPA)
         # KO+
-        y_KOp = [integrand_F1p(x, rs * alpha_ueg / π, Fs) for x in xgrid]
+        y_KOp = [integrand_F1p(x, rstilde, Fs) for x in xgrid]
         val_KOp = CompositeGrids.Interp.integrate1D(y_KOp, xgrid)
         push!(F1p_KOp, val_KOp)
         # KO-
@@ -405,7 +406,7 @@ function get_analytic_F1p(rslist; plot=false, sign_Fsa=-1.0)
         val_KOm = CompositeGrids.Interp.integrate1D(y_KOm, xgrid)
         push!(F1p_KOm, val_KOm)
         # KO
-        y_KO = [integrand_F1(x, rs * alpha_ueg / π, Fs, Fa) for x in xgrid]
+        y_KO = [integrand_F1(x, rstilde, Fs, Fa) for x in xgrid]
         val_KO = CompositeGrids.Interp.integrate1D(y_KO, xgrid)
         push!(F1p_KO, val_KO)
     end
@@ -414,19 +415,16 @@ function get_analytic_F1p(rslist; plot=false, sign_Fsa=-1.0)
         ax.plot(rslist, F1p_RPA; color="black", label="\$W_0\$")
         ax.plot(rslist, F1p_KOp; color=cdict["blue"], label="\$W^\\text{KO}_{0,+}\$")
         ax.plot(rslist, F1p_KOm; color=cdict["teal"], label="\$W^\\text{KO}_{0,-}\$")
-        ax.plot(
-            rslist,
-            F1p_KO;
-            color=cdict["red"],
-            label="\$W^\\text{KO}_{0} = W^\\text{KO}_{0,+} + 3 W^\\text{KO}_{0,-}\$",
-        )
+        ax.plot(rslist, F1p_KO; color=cdict["red"], label="\$W^\\text{KO}_{0}\$")
         xlabel("\$r_s\$")
         ylabel("\$\\widetilde{F}^+_1[W]\$")
         xlim(0, 10)
         if sign_Fsa < 0
-            ylim(-0.425, 0.075)
+            # ylim(-0.425, 0.075)
+            ylim(-0.2125, 0.03875)
         else
-            ylim(-0.12, 0.08)
+            # ylim(-0.12, 0.08)
+            ylim(-0.06, 0.04)
         end
         ax.legend(; fontsize=10, loc="best")
         # tight_layout()
@@ -477,9 +475,9 @@ function get_Flp_ElectronGas(l::Integer, param::Parameter.Para, Fs, Fa, int_type
 
     # Perform dimensionless angular integration
     if l == 0
-        integrand = @. -real(2 * NF * R_plus_static) * xgrid
+        integrand = @. -real(NF * R_plus_static) * xgrid
     elseif l == 1
-        integrand = @. -real(2 * NF * R_plus_static) * xgrid * (1 - 2 * xgrid^2)
+        integrand = @. -real(NF * R_plus_static) * xgrid * (1 - 2 * xgrid^2)
     else
         error("l > 1 not yet implemented!")
     end
@@ -528,10 +526,9 @@ function get_tree_level_Flp_ElectronLiquid(l::Integer, param::Parameter.Para; ve
     p_rpa = ParaMC(; rs=rs, beta=beta, dim=dim, Fs=0.0, Fa=0.0, order=1, mass2=0.0)
     p_fp = ParaMC(; rs=rs, beta=beta, dim=dim, Fs=Fs, Fa=0.0, order=1, mass2=0.0)
     p_fp_fm = ParaMC(; rs=rs, beta=beta, dim=dim, Fs=Fs, Fa=Fa, order=1, mass2=0.0)
-    Flp_rpa = -2 * Ver4.projected_exchange_interaction(l, p_rpa, W_ex; verbose=verbose)[1]
-    Flp_fp = -2 * Ver4.projected_exchange_interaction(l, p_fp, W_ex; verbose=verbose)[1]
-    Flp_fp_fm =
-        -2 * Ver4.projected_exchange_interaction(l, p_fp_fm, W_ex; verbose=verbose)[1]
+    Flp_rpa = -Ver4.projected_exchange_interaction(l, p_rpa, W_ex; verbose=verbose)[1]
+    Flp_fp = -Ver4.projected_exchange_interaction(l, p_fp, W_ex; verbose=verbose)[1]
+    Flp_fp_fm = -Ver4.projected_exchange_interaction(l, p_fp_fm, W_ex; verbose=verbose)[1]
     return Flp_rpa, Flp_fp, Flp_fp_fm
 end
 
@@ -582,16 +579,16 @@ function plot_vs_rs(
     zorder=nothing,
     data_rs0=0.0,
     rs_HDL=nothing,
-    meff_HDL=nothing,
+    data_HDL=nothing,
 )
     # Add point at rs = 0
     rslist = unique([0.0; rslist])
     data = unique([data_rs0; data])
 
     # Add data in the high-density limit to the fit, if provided
-    if !isnothing(rs_HDL) && !isnothing(meff_HDL)
+    if !isnothing(rs_HDL) && !isnothing(data_HDL)
         rslist = unique([rslist; rs_HDL])
-        data = unique([data; meff_HDL])
+        data = unique([data; data_HDL])
     end
 
     # Re-sort the data after adding the high-density limit data
@@ -652,6 +649,7 @@ function errorbar_vs_rs(
     return handle
 end
 
+"""Solve for I0 = 0"""
 function get_self_consistent_F0p_KOp()
     function I0_KOp(x, y)
         y_mask(x) = -1 - x / 4
@@ -687,8 +685,41 @@ function get_self_consistent_F0p_KOp()
     return rslist.grid, F0ps_sc
 end
 
+"""Solve for I0 = F+ / 2"""
+function get_self_consistent_F0p_KOp_v2()
+    function I0_KOp(x, y)
+        ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+        integrand = [integrand_F0p(t, x * alpha_ueg / π, y) for t in ts]
+        integral = CompositeGrids.Interp.integrate1D(integrand, ts)
+        return integral
+    end
+    rslist = CompositeGrid.LogDensedGrid(:cheb, [0.0, 10.0], [0.0], 16, 1e-3, 16)
+    F0ps_sc = Float64[]
+    for rs in rslist
+        F0p_sc = find_zero(Fp -> I0_KOp(rs, Fp) - Fp / 2, (-10.0, 10.0))
+        push!(F0ps_sc, F0p_sc)
+    end
+    # # Least-squares fit to a [3/3] Pade rational form
+    # @. model(x, p) =
+    #     (p[1] + p[2] * x + p[3] * x^2 + p[4] * x^3) /
+    #     (1 + p[5] * x + p[6] * x^2 + p[7] * x^3)
+    # x = rslist.grid
+    # y = F0ps_sc
+    # fit = curve_fit(model, x, y, [0.01, -0.5, 0.01, 0.01, 0.01, 0.01, 0.01])
+    # fitted_model(x) = model(x, fit.param)
+    # fit_errs = stderror(fit)
+    # println("fit parameters:\t\t$(fit.param)")
+    # println("fit standard errors:\t$(fit_errs)")
+    # # plot(x, y)
+    # # plot!(x, fitted_model.(x); linestyle=:dash)
+    # y_fit = fitted_model.(x)
+    return rslist.grid, F0ps_sc
+end
+
 function plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
-    function f(x, y; y_mask=y_mask)
+    function f(x, y)
+        # masking function to discount numerically unstable region
+        y_mask(x) = -1 - x / 4
         # mask the region where y < y_mask
         if y < y_mask(x)
             return -Inf
@@ -699,13 +730,10 @@ function plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
         return f
     end
 
-    # masking function to discount numerically unstable region
-    y_mask(x) = -1 - x / 4
-
     # contour plot
     x = range(0, 10; length=100)
-    y = range(-3.5, 0; length=100)
-    z = @. f(x', y; y_mask=y_mask)
+    y = range(-3.5, 0.0; length=100)
+    z = @. f(x', y)
 
     fig, ax = plt.subplots()
     # plot the Perdew & Wang result for F+
@@ -720,16 +748,16 @@ function plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
     # Tree-level KO with fp only
     plot_vs_rs(
         rslist,
-        F0ps_KOp_C,
+        2 * F0ps_KOp_C,
         cdict["black"],
-        "\$\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\left[f_\\pm\\right]\\right]\$",
+        "\$2\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\left[f_\\pm\\right]\\right]\$",
         "--",
     )
     plot_vs_rs(
         rslist,
-        F0ps_KOp_SG,
+        2 * F0ps_KOp_SG,
         cdict["black"],
-        "\$\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\left[f_\\pm(q)\\right]\\right]\$",
+        "\$2\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\left[f_\\pm(q)\\right]\\right]\$",
         "-",
     )
     # plot_vs_rs(
@@ -767,6 +795,91 @@ function plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
     ax.set_title(
         "\$I_0\\left[W^\\text{KO}_{0,+}\\right](r_s, F_+) = \\text{const.}\$";
         pad=15,
+    )
+    fig.savefig("F0p_contours_full.pdf")
+    # fig.savefig("F0p_contours.pdf")
+    plt.tight_layout()
+    plt.close("all")
+    return
+end
+
+function plot_integrand_implicit_FOp_KOp_v2(rslist, F0ps_KOp_C, F0ps_KOp_SG)
+    function f(x, y)
+        # masking function to discount numerically unstable region
+        y_mask(x) = -1 - x / 4
+        # mask the region where y < y_mask
+        if y < y_mask(x)
+            return -Inf
+        end
+        ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+        integrand = [integrand_F0p(t, x * alpha_ueg / π, y) for t in ts]
+        f = CompositeGrids.Interp.integrate1D(integrand, ts)
+        return f - y / 2
+    end
+
+    F_sc_inf = -1.2980116518203961
+
+    # contour plot
+    x = range(0, 10; length=100)
+    y = range(F_sc_inf, 0; length=100)
+    z = @. f(x', y)
+
+    fig, ax = plt.subplots()
+    # plot the Perdew & Wang result for F+
+    ax.plot(
+        x,
+        -get_Fs_PW.(x);
+        color=cdict["grey"],
+        label="\$\\kappa_0 / \\kappa - 1\$",
+        linestyle="--",
+    )
+
+    # Tree-level KO with fp only
+    plot_vs_rs(
+        rslist,
+        F0ps_KOp_C,
+        cdict["black"],
+        "\$\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\left[f_\\pm\\right]\\right]\$",
+        "--",
+    )
+    plot_vs_rs(
+        rslist,
+        F0ps_KOp_SG,
+        cdict["black"],
+        "\$\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\left[f_\\pm(q)\\right]\\right]\$",
+        "-",
+    )
+    # plot_vs_rs(
+    #     rslist,
+    #     F0ps_KOp_C,
+    #     cdict["black"],
+    #     "\$\\widetilde{F}^+_0\\left[W^\\text{KO}_{0,+}\\right]\$",
+    #     "-",
+    # )
+    CS = ax.contour(
+        x,
+        y,
+        z;
+        levels=[-0.25, 0, 0.25],
+        colors=[cdict["teal"], cdict["blue"], cdict["orange"]],
+    )
+    fmt = Dict(-0.25 => "-\$\\frac{1}{4}\$", 0 => "\$0\$", 0.25 => "\$\\frac{1}{4}\$")
+    ax.clabel(
+        CS;
+        inline=true,
+        fontsize=10,
+        fmt=fmt,
+        manual=[(4.0, -0.2), (5.0, -0.5), (6.0, -1.0)],
+    )
+    ax.legend(; loc="lower left", fontsize=8)
+    ax.set_xlim(0, 10)
+    ax.set_ylim(F_sc_inf, 0)
+    ax.set_xlabel("\$r_s\$")
+    ax.set_ylabel("\$F_+\$")
+    ax.set_title(
+        "\$I_0\\left[W^\\text{KO}_{0,+}\\right](r_s, F_+) - F_+ / 2 = \\text{const.}\$";
+        pad=15,
+        fontsize=14,
     )
     fig.savefig("F0p_contours_full.pdf")
     # fig.savefig("F0p_contours.pdf")
@@ -944,8 +1057,10 @@ function main()
     end
 
     # Self-consistent solution for F0p in the KO+ scheme
-    plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
-    rs_KOp_sc, F0p_KOp_sc = get_self_consistent_F0p_KOp()
+    # plot_integrand_implicit_FOp_KOp(rslist, F0ps_KOp_C, F0ps_KOp_SG)
+    plot_integrand_implicit_FOp_KOp_v2(rslist, F0ps_KOp_C, F0ps_KOp_SG)
+    # rs_KOp_sc, F0p_KOp_sc = get_self_consistent_F0p_KOp()
+    rs_KOp_sc, F0p_KOp_sc = get_self_consistent_F0p_KOp_v2()
     # return
 
     ###############################
@@ -954,6 +1069,7 @@ function main()
 
     # High-density limit of the effective mass
     rs_HDL_plot = collect(range(1e-5, 0.35, 101))
+    # rs_HDL_plot = collect(range(1e-5, 0.35, 101))
     meff_HDL_plot = [high_density_limit(rs) for rs in rs_HDL_plot]
 
     # Use exact expression in the high-density limit for all effective mass fits
@@ -973,7 +1089,7 @@ function main()
         "-";
         data_rs0=1.0,
         rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
+        data_HDL=meff_HDL,
     )
     # plot_vs_rs(
     #     rslist_small,
@@ -983,7 +1099,7 @@ function main()
     #     "-.";
     #     data_rs0=1.0,
     #     rs_HDL=rs_HDL,
-    #     meff_HDL=meff_HDL,
+    #     data_HDL=meff_HDL,
     # )
     # plot_vs_rs(
     #     rslist_small,
@@ -993,7 +1109,7 @@ function main()
     #     "--";
     #     data_rs0=1.0,
     #     rs_HDL=rs_HDL,
-    #     meff_HDL=meff_HDL,
+    #     data_HDL=meff_HDL,
     # )
 
     # KOp effective mass from Dyson self-energy
@@ -1013,7 +1129,7 @@ function main()
     #     "-.";
     #     data_rs0=1.0,
     #     rs_HDL=rs_HDL,
-    #     meff_HDL=meff_HDL,
+    #     data_HDL=meff_HDL,
     # )
     plot_vs_rs(
         rslist_small,
@@ -1023,7 +1139,7 @@ function main()
         "-";
         data_rs0=1.0,
         rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
+        data_HDL=meff_HDL,
     )
 
     # KO effective mass from Dyson self-energy
@@ -1043,7 +1159,7 @@ function main()
     #     "-.";
     #     data_rs0=1.0,
     #     rs_HDL=rs_HDL,
-    #     meff_HDL=meff_HDL,
+    #     data_HDL=meff_HDL,
     # )
     plot_vs_rs(
         rslist_small,
@@ -1053,7 +1169,7 @@ function main()
         "-";
         data_rs0=1.0,
         rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
+        data_HDL=meff_HDL,
     )
 
     # Data taken from Simion & Giuliani (2008), Table 1
@@ -1080,31 +1196,32 @@ function main()
     fig2 = figure(; figsize=(6, 6))
     ax2 = fig2.add_subplot(111)
 
-    F0p_RPA_inf = -1.2980116518203961
-    F1p_RPA_inf = 0.1348791193970809
+    F0p_RPA_inf = -0.6490058259101981
+    F1p_RPA_inf = 0.06743955969854044
 
     # Full F^+(rs)
-    labelstr =
-        sign_Fsa > 0 ? "\$-F^+ = \\kappa_0 / \\kappa - 1\$" :
-        "\$F^+ = \\left(\\frac{\\kappa_0}{\\kappa} - 1\\right)_\\text{DMC}\$"
-    labelstr2 =
-        sign_Fsa > 0 ? "\$-F^+ = \\kappa_0 / \\kappa - 1\$" :
-        "\$F^+ + \\widetilde{F}^+_0[W_0](\\infty)\$"
+    labelstr = "\$F^+ = \\left(\\frac{\\kappa_0}{\\kappa} - 1\\right)_\\text{DMC}\$"
+    # labelstr = "\$\\frac{1}{2}F^+ = \\frac{1}{2}\\left(\\frac{\\kappa_0}{\\kappa} - 1\\right)_\\text{DMC}\$"
+    labelstr2 = "\$\\frac{1}{2}F^+ + \\widetilde{F}^+_0[W_0](\\infty)\$"
     ax2.axhline(
         F0p_RPA_inf;
         color="black",
         linestyle="--",
-        label="\$\\widetilde{F}^+_0[W_0](\\infty)\$",
+        label=nothing,
+        # label="\$\\widetilde{F}^+_0[W_0](\\infty)\$",
+        zorder=-3
     )
     plot_vs_rs(
         rslist,
-        sign_Fsa * get_Fs_PW.(rslist) .+ F0p_RPA_inf,
+        sign_Fsa * get_Fs_PW.(rslist) / 2 .+ F0p_RPA_inf,
         cdict["blue"],
-        labelstr2,
+        nothing,
+        # labelstr2,
         "--";
         data_rs0=F0p_RPA_inf,
+        zorder=-2
     )
-    plot_vs_rs(rslist, sign_Fsa * get_Fs_PW.(rslist), cdict["grey"], labelstr, "-")
+    # plot_vs_rs(rslist, sign_Fsa * get_Fs_PW.(rslist) / 2, cdict["grey"], labelstr, "--")
 
     # Tree-level RPA
     plot_vs_rs(rslist, F0ps_RPA_C, "black", "\$W_0\$", "-")
@@ -1123,41 +1240,116 @@ function main()
 
     # Self-consistent KO with fp only
     plot_vs_rs(rs_KOp_sc, F0p_KOp_sc, cdict["teal"], "\$F^+_\\text{sc}\$", "-")
+    ax2.axhline(
+        2 * F0p_RPA_inf;
+        color=cdict["teal"],
+        linestyle="--",
+        # label="\$F^+_\\text{sc}(\\infty)\$",
+    )
 
-    legend(; loc="best", fontsize=10, ncol=3)
+    plot_vs_rs(
+        rslist,
+        sign_Fsa * get_Fs_PW.(rslist),
+        cdict["grey"],
+        labelstr,
+        "-";
+        zorder=-1,
+    )
+
+    legend(; loc="best", fontsize=12, ncol=2)
     ylabel("\$\\widetilde{F}^+_0[W]\$")
     xlabel("\$r_s\$")
     # ylim(-0.056, 0.034)
     # ylim(-1.1, 0.6)
     xlim(0, 10)
-    ylim(-2.6, 0.4)
+    # ylim(-2.6, 0.4)
     tight_layout()
     savefig("F0p_tree_level_int_type_comparisons_$(signstr_Fsa).pdf")
 
     fig3 = figure(; figsize=(6, 6))
     ax3 = fig3.add_subplot(111)
 
+    # # Full RPA
+    # plot_vs_rs(
+    #     rslist_small,
+    #     meffs_RPA_C .- 1,
+    #     cdict["teal"],
+    #     "\$\\left(\\frac{m^*}{m}\\right)_\\text{RPA} - 1\$",
+    #     "-",
+    # )
+
+    # High-density limit of the l=1 Fermi liquid parameter
+    rs_HDL_plot = collect(range(1e-5, 0.75, 101))
+    F1p_HDL_plot = [(high_density_limit(rs) .- 1) for rs in rs_HDL_plot]
+
+    # Use exact expression in the high-density limit for all effective mass fits
+    cutoff_HDL = 0.1
+    rs_HDL = rs_HDL_plot[rs_HDL_plot .≤ cutoff_HDL]
+    F1p_HDL = F1p_HDL_plot[rs_HDL_plot .≤ cutoff_HDL]
+
     ax3.axhline(
         F1p_RPA_inf;
         color="black",
         linestyle="--",
-        label="\$\\widetilde{F}^+_1[W_0](\\infty)\$",
+        label=nothing,
+        # label="\$\\widetilde{F}^+_1[W_0](\\infty)\$",
     )
 
     # Tree-level RPA
-    plot_vs_rs(rslist, F1ps_RPA_C, "black", "\$W_0\$", "-")
+    plot_vs_rs(rslist, F1ps_RPA_C, "black", "\$W_0\$", "-"; rs_HDL=rs_HDL, data_HDL=F1p_HDL)
     # plot_vs_rs(rslist, F1ps_RPA_T, "black", nothing, "-.")
     # plot_vs_rs(rslist, F1ps_RPA_SG, "black", nothing, "-")
 
     # Tree-level KO with fp only
-    plot_vs_rs(rslist, F1ps_KOp_C, cdict["blue"], "\$W^\\text{KO}_{0,+}[f_\\pm]\$", "-")
+    plot_vs_rs(
+        rslist,
+        F1ps_KOp_C,
+        cdict["blue"],
+        "\$W^\\text{KO}_{0,+}[f_\\pm]\$",
+        "-";
+        rs_HDL=rs_HDL,
+        data_HDL=F1p_HDL,
+    )
     # plot_vs_rs(rslist, F1ps_KOp_T, cdict["blue"], nothing, "-.")
-    plot_vs_rs(rslist, F1ps_KOp_SG, cdict["cyan"], "\$W^\\text{KO}_{0,+}[f_\\pm(q)]\$", "-")
+    plot_vs_rs(
+        rslist,
+        F1ps_KOp_SG,
+        cdict["cyan"],
+        "\$W^\\text{KO}_{0,+}[f_\\pm(q)]\$",
+        "-";
+        rs_HDL=rs_HDL,
+        data_HDL=F1p_HDL,
+    )
 
     # Tree-level KO with fp and fm
-    plot_vs_rs(rslist, F1ps_KO_C, cdict["red"], "\$W^\\text{KO}_{0}[f_\\pm]\$", "-")
+    plot_vs_rs(
+        rslist,
+        F1ps_KO_C,
+        cdict["red"],
+        "\$W^\\text{KO}_{0}[f_\\pm]\$",
+        "-";
+        rs_HDL=rs_HDL,
+        data_HDL=F1p_HDL,
+    )
     # plot_vs_rs(rslist, F1ps_KO_T, cdict["red"], nothing, "-.")
-    plot_vs_rs(rslist, F1ps_KO_SG, cdict["orange"], "\$W^\\text{KO}_{0}[f_\\pm(q)]\$", "-")
+    plot_vs_rs(
+        rslist,
+        F1ps_KO_SG,
+        cdict["orange"],
+        "\$W^\\text{KO}_{0}[f_\\pm(q)]\$",
+        "-";
+        rs_HDL=rs_HDL,
+        data_HDL=F1p_HDL,
+    )
+
+    # # High-density limit
+    # plot_vs_rs(
+    #     rs_HDL_plot,
+    #     F1p_HDL_plot,
+    #     cdict["teal"],
+    #     "\$\\frac{m^*}{m} - 1 \\sim \\frac{\\alpha r_s}{2 \\pi} \\log r_s\$",
+    #     "-",
+    # )
 
     legend(; loc=(0.02, 0.75), fontsize=12, ncol=2)
     ylabel("\$\\widetilde{F}^+_1[W]\$")
@@ -1208,6 +1400,16 @@ function main()
     # Final 3D plot of effective mass #
     ###################################
 
+    # High-density limit of the effective mass
+    rs_HDL_plot = collect(range(1e-5, 0.35, 101))
+    # rs_HDL_plot = collect(range(1e-5, 0.35, 101))
+    meff_HDL_plot = [high_density_limit(rs) for rs in rs_HDL_plot]
+
+    # Use exact expression in the high-density limit for all effective mass fits
+    cutoff_HDL = 0.1
+    rs_HDL = rs_HDL_plot[rs_HDL_plot .≤ cutoff_HDL]
+    meff_HDL = meff_HDL_plot[rs_HDL_plot .≤ cutoff_HDL]
+
     fig4 = figure(; figsize=(6, 6))
     ax4 = fig4.add_subplot(111)
 
@@ -1229,14 +1431,21 @@ function main()
 
     # DMC data
     handle1 = errorbar_vs_rs(rs_DMC, m_DMC, m_DMC_err, "DMC", cdict["blue"], "s"; zorder=10)
-    println(handle1)
 
     # VMC data
-    handle2 = errorbar_vs_rs(rs_VMC, m_SJVMC, m_SJVMC_err, "VMC", cdict["red"], "^"; zorder=20)
+    handle2 =
+        errorbar_vs_rs(rs_VMC, m_SJVMC, m_SJVMC_err, "VMC", cdict["red"], "^"; zorder=20)
 
     # Our VDMC data
-    handle3 =
-        errorbar_vs_rs(rs_VDMC, m_VDMC, m_VDMC_err, "This work", cdict["black"], "o"; zorder=30)
+    handle3 = errorbar_vs_rs(
+        rs_VDMC,
+        m_VDMC,
+        m_VDMC_err,
+        "This work",
+        cdict["black"],
+        "o";
+        zorder=30,
+    )
     plot_vs_rs(
         rs_VDMC,
         m_VDMC,
@@ -1245,7 +1454,7 @@ function main()
         "-";
         data_rs0=1.0,
         rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
+        data_HDL=meff_HDL,
     )
 
     # RPA effective mass from Dyson self-energy
@@ -1256,37 +1465,32 @@ function main()
         "\$\\text{RPA}\$",
         "--";
         data_rs0=1.0,
-        rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
+        # rs_HDL=rs_HDL,
+        # data_HDL=meff_HDL,
     )
-    println(handle4)
 
     # Tree-level G0W0
     handle5 = plot_vs_rs(
         rslist,
-        # 1 .+ F1ps_RPA_C,
-        1 .+ F1ps_RPA_C / 2,
+        1 .+ F1ps_RPA_C,
         cdict["magenta"],
-        # "\$1 + \\widetilde{F}^{+}_1\\left[W_0\\right]\$",
-        "\$1 + \\frac{1}{2}\\widetilde{F}^{+}_1\\left[W_0\\right]\$",
+        "\$1 + \\widetilde{F}^{+}_1\\left[W_0\\right]\$",
         "--";
         data_rs0=1.0,
-        # rs_HDL=rs_HDL,
-        # meff_HDL=meff_HDL,
+        rs_HDL=rs_HDL,
+        data_HDL=meff_HDL,
     )
 
     # Tree-level KOp
     handle6 = plot_vs_rs(
         rslist,
-        # 1 .+ F1ps_KOp_C,
-        1 .+ F1ps_KOp_C / 2,
+        1 .+ F1ps_KOp_C,
         cdict["cyan"],
-        # "\$1 + \\widetilde{F}^{+}_1\\left[W^\\text{KO}_{0,+}\\right]\$",
-        "\$1 + \\frac{1}{2}\\widetilde{F}^{+}_1\\left[W^\\text{KO}_{0,+}\\right]\$",
+        "\$1 + \\widetilde{F}^{+}_1\\left[W^\\text{KO}_{0,+}\\right]\$",
         "--";
         data_rs0=1.0,
-        # rs_HDL=rs_HDL,
-        # meff_HDL=meff_HDL,
+        rs_HDL=rs_HDL,
+        data_HDL=meff_HDL,
     )
 
     # Labels
@@ -1308,8 +1512,7 @@ function main()
     ax4.legend(; loc="upper left", ncol=2)
     ax4.set_xticks([0, 1, 2, 3, 4, 5, 6])
     ax4.set_yticks([0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15])
-    # fig4.savefig("meff_3D_with_tree_level.pdf")
-    fig4.savefig("meff_3D_with_tree_level_halved.pdf")
+    fig4.savefig("meff_3D_with_tree_level.pdf")
 
     ########################################
     # Benchmark Flp against ElectronLiquid #
