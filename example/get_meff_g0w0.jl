@@ -46,7 +46,7 @@ function main()
 
     verbose = true
     save = true
-    constant_fs = true
+    constant_fs = false
 
     calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => true)
     rslist = [0.01; 0.25; 0.5; 0.75; collect(range(1.0, 10.0; step=0.5))]
