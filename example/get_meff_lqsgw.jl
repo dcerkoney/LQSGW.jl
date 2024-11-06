@@ -62,10 +62,19 @@ function main()
     # Use data at previous rs as initial guess for next rs or not?
     use_prev_rs = true
 
-    # Full calculation
-    calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => false)
-    rslist = [0.01, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
-    alphalist = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    # f+ and f-
+    calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
+    rslist = [7.5, 7.75, 8.0, 8.25, 8.5, 8.75, 9.0, 9.25, 9.5, 9.75, 10.0]
+    alphalist = [0.2, 0.1, 0.1, 0.05, 0.05, 0.05]
+
+    # Use G0W0 for the first rs datapoint, or existing data?
+    overwrite = false
+
+    # # Full calculation
+    # calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => false)
+    # rslist = [0.01, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+    # alphalist = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
+    # overwrite = true
 
     #calculate = Dict("rpa" => true, "fp" => true, "fp_fm" => false)
     #rslist = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
@@ -204,7 +213,7 @@ function main()
                 minK,
                 alpha;
                 loadname=get_loadname(i, :rpa),
-                overwrite=i == 1,  # use G0W0 for the first rs datapoint
+                overwrite=overwrite && i == 1,
             )
         end
         if calculate["fp"]
@@ -218,7 +227,7 @@ function main()
                 int_type_fp,
                 Fs;
                 loadname=get_loadname(i, int_type_fp),
-                overwrite=i == 1,  # use G0W0 for the first rs datapoint
+                overwrite=overwrite && i == 1,
             )
         end
         if calculate["fp_fm"]
@@ -233,7 +242,7 @@ function main()
                 Fs,
                 Fa;
                 loadname=get_loadname(i, int_type_fp_fm),
-                overwrite=i == 1,  # use G0W0 for the first rs datapoint
+                overwrite=overwrite && i == 1,
             )
         end
         # Save data for this rs to dictionaries
