@@ -261,6 +261,52 @@ function load_lqsgw_data(
     )
 end
 
+# New data
+function load_lqsgw_data_new_format(
+    param::Parameter.Para,
+    int_type,
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
+)
+    local data
+    max_step = -1
+    filename = joinpath(savedir, savename)
+    jldopen(filename, "r") do f
+        @assert f["converged"] == true "Specificed save data did not converge!"
+        # Find the converged data in JLD2 file
+        for i in 0:(LQSGW.MAXIMUM_STEPS)
+            if haskey(f, string(i))
+                max_step = i
+                data = f[string(i)]
+            else
+                break
+            end
+        end
+        if max_step < 0
+            error("No data found in $(savedir)!")
+        end
+        println(
+            "Found converged data with max_step=$(max_step) at rs=$(round(param.rs; sigdigits=4)) for savename $(savename)!",
+        )
+        return data
+    end
+end
+function load_oneshot_data_new_format(
+    param::Parameter.Para,
+    int_type,
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
+)
+    filename = joinpath(savedir, savename)
+    jldopen(filename, "r") do f
+        if haskey(f, string(0))
+            return f[string(0)]
+        else
+            error("No data found in $(savedir)!")
+        end
+    end
+end
+
 function main()
     # UEG parameters
     beta = 40.0
@@ -300,40 +346,40 @@ function main()
     @assert int_type_fp ∈ [:ko_const_p, :ko_takada_plus, :ko_moroni]
     @assert int_type_fp_fm ∈ [:ko_const_pm, :ko_takada, :ko_simion_giuliani]
 
-    #########################################################################################
-    # Load one-shot methods calculated using ElectronGas.jl defaults for Σ_G0W0 = Σ[G0, Π0] #
-    #########################################################################################
+    # #########################################################################################
+    # # Load one-shot methods calculated using ElectronGas.jl defaults for Σ_G0W0 = Σ[G0, Π0] #
+    # #########################################################################################
 
-    f_sigma_G0W0 = np.load("data/3d/rpa/meff_3d_sigma_G0W0.npz")
-    rs_G0W0 = f_sigma_G0W0.get("rslist")
-    m_G0W0 = f_sigma_G0W0.get("mefflist")
-    z_G0W0 = f_sigma_G0W0.get("zlist")
+    # f_sigma_G0W0 = np.load("data/3d/rpa/meff_3d_sigma_G0W0.npz")
+    # rs_G0W0 = f_sigma_G0W0.get("rslist")
+    # m_G0W0 = f_sigma_G0W0.get("mefflist")
+    # z_G0W0 = f_sigma_G0W0.get("zlist")
 
-    f_sigma_G0Wp = np.load("data/3d/$(int_type_fp)/meff_3d_sigma_G0Wp.npz")
-    # f_sigma_G0Wp = np.load(
-    #     "data/3d/ko_moroni/meff_3d_sigma_G0Wp.npz")
-    rs_G0Wp = f_sigma_G0Wp.get("rslist")
-    m_G0Wp = f_sigma_G0Wp.get("mefflist")
-    z_G0Wp = f_sigma_G0Wp.get("zlist")
+    # f_sigma_G0Wp = np.load("data/3d/$(int_type_fp)/meff_3d_sigma_G0Wp.npz")
+    # # f_sigma_G0Wp = np.load(
+    # #     "data/3d/ko_moroni/meff_3d_sigma_G0Wp.npz")
+    # rs_G0Wp = f_sigma_G0Wp.get("rslist")
+    # m_G0Wp = f_sigma_G0Wp.get("mefflist")
+    # z_G0Wp = f_sigma_G0Wp.get("zlist")
 
-    f_sigma_G0Wpm = np.load("data/3d/$(int_type_fp_fm)/meff_3d_sigma_G0Wpm.npz")
-    # f_sigma_G0Wpm = np.load(
-    #     "data/3d/ko_simion_giuliani/meff_3d_sigma_G0Wpm.npz")
-    rs_G0Wpm = f_sigma_G0Wpm.get("rslist")
-    m_G0Wpm = f_sigma_G0Wpm.get("mefflist")
-    z_G0Wpm = f_sigma_G0Wpm.get("zlist")
+    # f_sigma_G0Wpm = np.load("data/3d/$(int_type_fp_fm)/meff_3d_sigma_G0Wpm.npz")
+    # # f_sigma_G0Wpm = np.load(
+    # #     "data/3d/ko_simion_giuliani/meff_3d_sigma_G0Wpm.npz")
+    # rs_G0Wpm = f_sigma_G0Wpm.get("rslist")
+    # m_G0Wpm = f_sigma_G0Wpm.get("mefflist")
+    # z_G0Wpm = f_sigma_G0Wpm.get("zlist")
 
     #####################################################
     # Load one-shot and LQSGW data computed via LQSGW.jl #
     #####################################################
 
-    data_rpa = load_oneshot_data(param)
-    data_rpa_fp = load_oneshot_data(param, int_type_fp)
-    data_rpa_fp_fm = load_oneshot_data(param, int_type_fp_fm)
+    data_rpa = load_oneshot_data_new_format(param, :rpa)
+    data_rpa_fp = load_oneshot_data_new_format(param, int_type_fp)
+    data_rpa_fp_fm = load_oneshot_data_new_format(param, int_type_fp_fm)
 
-    data_lqsgw = load_lqsgw_data(param)
-    data_lqsgw_fp = load_lqsgw_data(param, int_type_fp)
-    data_lqsgw_fp_fm = load_lqsgw_data(param, int_type_fp_fm)
+    data_lqsgw = load_lqsgw_data_new_format(param, :rpa)
+    data_lqsgw_fp = load_lqsgw_data_new_format(param, int_type_fp)
+    data_lqsgw_fp_fm = load_lqsgw_data_new_format(param, int_type_fp_fm)
 
     # RPA momentum grids for G, Π, and Σ
     qPgrid_rpa = data_rpa.Π.mesh[2]
@@ -436,6 +482,89 @@ function main()
     plt.tight_layout()
     fig.savefig("sigma_x_rs=$(round(rs; sigdigits=4))_$(fsstr).pdf")
 
+    #################################
+    # Plot total static self-energy #
+    #################################
+
+    fig, ax = plt.subplots(; figsize=(5, 5))
+
+    # w0_label = locate(sw1.mesh[1], 0)
+
+    sigma_x_rpa = data_rpa.Σ_ins[1, :]
+    sigma_x_rpa_fp = data_rpa_fp.Σ_ins[1, :]
+    sigma_x_rpa_fp_fm = data_rpa_fp_fm.Σ_ins[1, :]
+
+    # @assert all(abs.(imag.(sigma_x_rpa)) .< 1e-10)
+    # @assert all(abs.(imag.(sigma_x_rpa_fp)) .< 1e-10)
+    # @assert all(abs.(imag.(sigma_x_rpa_fp_fm)) .< 1e-10)
+
+    sigma_x_lqsgw = data_lqsgw.Σ_ins[1, :]
+    sigma_x_lqsgw_fp = data_lqsgw_fp.Σ_ins[1, :]
+    sigma_x_lqsgw_fp_fm = data_lqsgw_fp_fm.Σ_ins[1, :]
+
+    # @assert all(abs.(imag.(sigma_x_lqsgw)) .< 1e-10)
+    # @assert all(abs.(imag.(sigma_x_lqsgw_fp)) .< 1e-10)
+    # @assert all(abs.(imag.(sigma_x_lqsgw_fp_fm)) .< 1e-10)
+
+    plot_spline(
+        kSgrid_rpa / kF,
+        real.(sigma_x_rpa),
+        1,
+        "\$G_0 W_0\$",
+        ax;
+        ls="--",
+        zorder=1,
+    )
+    plot_spline(
+        kSgrid_rpa_fp / kF,
+        real.(sigma_x_rpa_fp),
+        2,
+        "\$G_0 W^\\text{KO}_{0,+}\$",
+        ax;
+        ls="--",
+        zorder=3,
+    )
+    plot_spline(
+        kSgrid_rpa_fp_fm / kF,
+        real.(sigma_x_rpa_fp_fm),
+        3,
+        "\$G_0 W^\\text{KO}_0\$",
+        ax;
+        ls="--",
+        zorder=5,
+    )
+
+    plot_spline(kSgrid_lqsgw / kF, real.(sigma_x_lqsgw), 4, "LQSGW", ax; zorder=2)
+    plot_spline(
+        kSgrid_lqsgw_fp / kF,
+        real.(sigma_x_lqsgw_fp),
+        5,
+        "LQSGW\$^\\text{KO}_+\$",
+        ax;
+        zorder=4,
+    )
+    plot_spline(
+        kSgrid_lqsgw_fp_fm / kF,
+        real.(sigma_x_lqsgw_fp_fm),
+        6,
+        "LQSGW\$^\\text{KO}\$",
+        ax;
+        zorder=6,
+    )
+
+    if constant_fs
+        ax.set_title("Constant \$F^\\pm(q)\$"; pad=10, fontsize=16)
+    else
+        ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
+    end
+    ax.set_xlim(0, 2)
+    ax.set_xlabel("\$k / k_F\$")
+    ax.set_ylabel("\$\\Sigma_x(k)\$")
+    ax.legend(; fontsize=12)
+    # ax.legend(; fontsize=12, ncol=3)
+    plt.tight_layout()
+    fig.savefig("sigma_static_rs=$(round(rs; sigdigits=4))_$(fsstr).pdf")
+
     ###################################
     # Plot static dielectric function #
     ###################################
@@ -517,7 +646,7 @@ function main()
     #     zorder=5,
     #     facecolor="none",
     # )
-  
+
     plot_spline(qPgrid_lqsgw / 2kF, eps_inv_lqsgw, 4, "LQSGW", ax; zorder=1)
     plot_spline(
         qPgrid_lqsgw_fp / 2kF,
@@ -575,7 +704,7 @@ function main()
     ax.set_xlim(0, maxKP / 2kF)
     plt.tight_layout()
     fig.savefig("inverse_static_dielectric_rs=$(round(rs; sigdigits=4))_$(fsstr).pdf")
-    
+
     ##############################
     # Plot quasiparticle residue #
     ##############################
@@ -664,6 +793,10 @@ function main()
     E_k_lqsgw = data_lqsgw.E_k
     E_k_lqsgw_fp = data_lqsgw_fp.E_k
     E_k_lqsgw_fp_fm = data_lqsgw_fp_fm.E_k
+
+    println(E_k_rpa[end], " ", E_k_lqsgw[end])
+    println(E_k_rpa_fp[end], " ", E_k_lqsgw_fp[end])
+    println(E_k_rpa_fp_fm[end], " ", E_k_lqsgw_fp_fm[end])
 
     E_k_0 = bare_energy(param, kSgrid_rpa)
     plot_spline(
