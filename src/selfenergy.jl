@@ -580,6 +580,7 @@ function Σ_G0W0(
 
     # Get quasiparticle properties from Σ_G0W0
     E_k_g0w0 = quasiparticle_energy(param, oneshot_data.Σ, oneshot_data.Σ_ins)
+    Z_k_g0w0 = zfactor_full(param, oneshot_data.Σ)
     dmu_g0w0 = chemicalpotential(param, oneshot_data.Σ, oneshot_data.Σ_ins)
     meff_g0w0 = massratio(param, oneshot_data.Σ, oneshot_data.Σ_ins, δK)[1]
     zfactor_g0w0 = zfactor_fermi(param, oneshot_data.Σ)
@@ -588,6 +589,7 @@ function Σ_G0W0(
     oneshot_data = reconstruct(
         oneshot_data;
         E_k=E_k_g0w0,
+        Z_k=Z_k_g0w0,
         dmu=dmu_g0w0,
         meff=meff_g0w0,
         zfactor=zfactor_g0w0,
