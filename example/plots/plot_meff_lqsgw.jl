@@ -48,6 +48,30 @@ function spline(x, y, e; xmin=0.0, xmax=x[end])
     return __x, yfit
 end
 
+function plot_spline(
+    x,
+    y;
+    ax=plt.gca(),
+    color="k",
+    label=nothing,
+    ls="-",
+    lw=nothing,
+    extrapolate=true,
+)
+    if extrapolate
+        mfitfunc = interp.PchipInterpolator(x, y; extrapolate=true)
+    else
+        mfitfunc = interp.Akima1DInterpolator(x, y)
+    end
+    xgrid = np.arange(0, 6.2, 0.02)
+    if isnothing(lw) == false
+        handle, = ax.plot(xgrid, mfitfunc(xgrid); ls=ls, color=color, label=label, lw=lw)
+    else
+        handle, = ax.plot(xgrid, mfitfunc(xgrid); ls=ls, color=color, label=label)
+    end
+    return handle
+end
+
 function main()
     # UEG parameters
     beta = 40.0
@@ -73,6 +97,7 @@ function main()
     # Test LQSGW parameters
     max_steps = 300
     int_type = :rpa
+    @assert int_type == :rpa "Only RPA is supported for now!"
 
     # ElectronGas.jl defaults for G0W0 self-energy
     maxK = 6 * kF
@@ -168,16 +193,6 @@ function main()
     colors(n) = reverse(hex.((colormap("Reds", n; mid=0.8, logscale=true))))
     # colors(n) = reverse(hex.((sequential_palette(0, n; s=1))))
 
-    # Plot Z, Sigma, and E_qp from first iteration side-by-side
-    nrows, ncols, wspace = 2, 3, 0.4
-    plt.figure(; figsize=(5 * ncols + wspace * (ncols), 5 * nrows))
-    ax1 = plt.subplot(nrows, ncols, 1)
-    ax2 = plt.subplot(nrows, ncols, 2)
-    ax3 = plt.subplot(nrows, ncols, 3)
-    ax4 = plt.subplot(nrows, ncols, 4)
-    ax5 = plt.subplot(nrows, ncols, 5)
-    ax6 = plt.subplot(nrows, ncols, 6)
-
     # # Load the data using legacy format
     # Σinsqp, nstep = loaddata_old("Σ_ins")
     # Σqp, nstep = loaddata_old("Σ")
@@ -192,160 +207,376 @@ function main()
     # end
 
     # Load the data using new format
-    # lqsgw_data, nstep = loaddata(; savedir="$(LQSGW.DATA_DIR)/test_nsp_no_rescale")
-    # lqsgw_data, nstep = loaddata(; savedir="$(LQSGW.DATA_DIR)/test_nsp_rescale")
-    lqsgw_data, nstep = loaddata(; savedir="$(LQSGW.DATA_DIR)/test_osp")
+    savename1 = "lqsgw_convergence_$(int_type)_rs=$(rs)_no_prev_rs.pdf"
+    savename2 = "lqsgw_convergence_$(int_type)_rs=$(rs)_prev_rs_without_rescale.pdf"
+    savename3 = "lqsgw_convergence_$(int_type)_rs=$(rs)_prev_rs_with_rescale.pdf"
+    lqsgw_data1, nstep1 = loaddata(; savedir="$(LQSGW.DATA_DIR)/test_osp")
+    lqsgw_data2, nstep2 = loaddata(; savedir="$(LQSGW.DATA_DIR)/test_nsp_no_rescale")
+    lqsgw_data3, nstep3 = loaddata(; savedir="$(LQSGW.DATA_DIR)/test_nsp_rescale")
+    for (savename, lqsgw_data, nstep) in zip(
+        [savename1, savename2, savename3],
+        [lqsgw_data1, lqsgw_data2, lqsgw_data3],
+        [nstep1, nstep2, nstep3],
+    )
+        # Plot Z, Sigma, and E_qp from first iteration side-by-side
+        nrows, ncols, wspace = 2, 3, 0.4
+        plt.figure(; figsize=(5 * ncols + wspace * (ncols), 5 * nrows))
+        ax1 = plt.subplot(nrows, ncols, 1)
+        ax2 = plt.subplot(nrows, ncols, 2)
+        ax3 = plt.subplot(nrows, ncols, 3)
+        ax4 = plt.subplot(nrows, ncols, 4)
+        ax5 = plt.subplot(nrows, ncols, 5)
+        ax6 = plt.subplot(nrows, ncols, 6)
 
-    if lqsgw_data[1].Σ.mesh[1].grid == [0]
-        w0_label = 1
-    else
-        w0_label = locate(lqsgw_data[1].Σ.mesh[1], 0)
-    end
-    Σins0 = real(lqsgw_data[1].Σ_ins[1, :])
-    Σins1 = real(lqsgw_data[2].Σ_ins[1, :])
-    Σins2 = real(lqsgw_data[3].Σ_ins[1, :])
-    Σinssc = real(lqsgw_data[end].Σ_ins[1, :])
-    Σ0 = real((lqsgw_data[1].Σ)[w0_label, :])
-    Σ1 = real((lqsgw_data[2].Σ)[w0_label, :])
-    Σ2 = real((lqsgw_data[3].Σ)[w0_label, :])
-    Σsc = real((lqsgw_data[end].Σ)[w0_label, :])
-    E0 = lqsgw_data[1].E_k
-    E1 = lqsgw_data[2].E_k
-    E2 = lqsgw_data[3].E_k
-    Esc = lqsgw_data[end].E_k
-    Z0 = lqsgw_data[1].Z_k
-    Z1 = lqsgw_data[2].Z_k
-    Z2 = lqsgw_data[3].Z_k
-    Zsc = lqsgw_data[end].Z_k
-    if lqsgw_data[1].Π.mesh[1].grid == [0]
-        w0_label = 1
-    else
-        w0_label = locate(lqsgw_data[1].Π.mesh[1], 0)
-    end
-    Π0 = real((lqsgw_data[1].Π)[w0_label, :])
-    Π1 = real((lqsgw_data[2].Π)[w0_label, :])
-    Π2 = real((lqsgw_data[3].Π)[w0_label, :])
-    Πsc = real((lqsgw_data[end].Π)[w0_label, :])
-    if lqsgw_data[1].W.mesh[1].grid == [0]
-        w0_label = 1
-    else
-        w0_label = locate(lqsgw_data[1].W.mesh[1], 0)
-    end
-    W0 = real((lqsgw_data[1].W)[w0_label, :])
-    W1 = real((lqsgw_data[2].W)[w0_label, :])
-    W2 = real((lqsgw_data[3].W)[w0_label, :])
-    Wsc = real((lqsgw_data[end].W)[w0_label, :])
-    V = [Interaction.coulomb(q, param)[1] for q in qPgrid]
-
-    for (i, d) in enumerate(lqsgw_data)
-        i == 1 && continue
-        ax1.plot(kSgrid / kF, real(d.Σ_ins[1, :]); color="#$(colors(nstep + 1)[i])")
-    end
-    ax1.plot(kSgrid / kF, Σins0, "--"; color="k", lw=1.5, label="\$i=0\$")
-    ax1.plot(kSgrid / kF, Σins1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
-    ax1.plot(kSgrid / kF, Σins2; color=cdict["red"], lw=1.5, label="\$i=2\$")
-    ax1.plot(kSgrid / kF, Σinssc; color=cdict["teal"], lw=1.5, label="self-consistent")
-
-    for (i, d) in enumerate(lqsgw_data)
-        i == 1 && continue
         if lqsgw_data[1].Σ.mesh[1].grid == [0]
             w0_label = 1
         else
             w0_label = locate(lqsgw_data[1].Σ.mesh[1], 0)
         end
-        ax2.plot(kSgrid / kF, real(d.Σ[w0_label, :]); color="#$(colors(nstep + 1)[i])")
+        println("Σ: w0_label = $w0_label")
+        Σins0 = real(lqsgw_data[1].Σ_ins[1, :])
+        Σins1 = real(lqsgw_data[2].Σ_ins[1, :])
+        Σins2 = real(lqsgw_data[3].Σ_ins[1, :])
+        Σinssc = real(lqsgw_data[end].Σ_ins[1, :])
+        Σ0 = real((lqsgw_data[1].Σ)[w0_label, :])
+        Σ1 = real((lqsgw_data[2].Σ)[w0_label, :])
+        Σ2 = real((lqsgw_data[3].Σ)[w0_label, :])
+        Σsc = real((lqsgw_data[end].Σ)[w0_label, :])
+        Σ0_static = Σins0 + Σ0
+        Σ1_static = Σins1 + Σ1
+        Σ2_static = Σins2 + Σ2
+        Σsc_static = Σinssc + Σsc
+        E0 = lqsgw_data[1].E_k
+        E1 = lqsgw_data[2].E_k
+        E2 = lqsgw_data[3].E_k
+        Esc = lqsgw_data[end].E_k
+        Z0 = lqsgw_data[1].Z_k
+        Z1 = lqsgw_data[2].Z_k
+        Z2 = lqsgw_data[3].Z_k
+        Zsc = lqsgw_data[end].Z_k
+
+        # Compute D(k) from ReΣ(k, iω0)
+        kgrid_plot = collect(range(0; stop=4, length=200))
+        dk_plot = kgrid_plot[2] - kgrid_plot[1]
+        kplot_cd = kgrid_plot[2:(end - 1)]
+        Σ1_static_interp = Interp.interp1DGrid(Σ1_static, kSgrid, kgrid_plot)
+        Σ2_static_interp = Interp.interp1DGrid(Σ2_static, kSgrid, kgrid_plot)
+        Σsc_static_interp = Interp.interp1DGrid(Σsc_static, kSgrid, kgrid_plot)
+        dΣ1_dk_static =
+            (Σ1_static_interp[3:end] - Σ1_static_interp[1:(end - 2)]) / (2 * dk_plot)
+        dΣ2_dk_static =
+            (Σ2_static_interp[3:end] - Σ2_static_interp[1:(end - 2)]) / (2 * dk_plot)
+        dΣsc_dk_static =
+            (Σsc_static_interp[3:end] - Σsc_static_interp[1:(end - 2)]) / (2 * dk_plot)
+        Dk1 = 1 .+ (param.me ./ kplot_cd) .* dΣ1_dk_static
+        Dk2 = 1 .+ (param.me ./ kplot_cd) .* dΣ2_dk_static
+        Dksc = 1 .+ (param.me ./ kplot_cd) .* dΣsc_dk_static
+
+        # Compute (m*/m)(k) = 1 / (Z(k) * D(k))
+        Zk1_interp = Interp.interp1DGrid(Z1, kSgrid, kplot_cd)
+        Zk2_interp = Interp.interp1DGrid(Z2, kSgrid, kplot_cd)
+        Zksc_interp = Interp.interp1DGrid(Zsc, kSgrid, kplot_cd)
+        meff1 = 1 ./ (Zk1_interp .* Dk1)
+        meff2 = 1 ./ (Zk2_interp .* Dk2)
+        meffsc = 1 ./ (Zksc_interp .* Dksc)
+        meff1[isinf.(meff1)] .= 1.0
+        meff2[isinf.(meff2)] .= 1.0
+        meffsc[isinf.(meffsc)] .= 1.0
+
+        if lqsgw_data[1].Π.mesh[1].grid == [0]
+            w0_label = 1
+        else
+            w0_label = locate(lqsgw_data[1].Π.mesh[1], 0)
+        end
+        println("Π: w0_label = $w0_label")
+        # Π0 = real((lqsgw_data[1].Π)[w0_label, :])
+        Π1 = real((lqsgw_data[2].Π)[w0_label, :])
+        Π2 = real((lqsgw_data[3].Π)[w0_label, :])
+        Πsc = real((lqsgw_data[end].Π)[w0_label, :])
+        if lqsgw_data[1].W.mesh[1].grid == [0]
+            w0_label = 1
+        else
+            w0_label = locate(lqsgw_data[1].W.mesh[1], 0)
+        end
+        println("W: w0_label = $w0_label")
+        # W0 = real((lqsgw_data[1].W)[w0_label, :])
+        W1 = real((lqsgw_data[2].W)[w0_label, :])
+        W2 = real((lqsgw_data[3].W)[w0_label, :])
+        Wsc = real((lqsgw_data[end].W)[w0_label, :])
+        V = [Interaction.coulomb(q, param)[1] for q in qPgrid]
+
+        for (i, d) in enumerate(lqsgw_data)
+            i == 1 && continue
+            if lqsgw_data[1].Σ.mesh[1].grid == [0]
+                w0_label = 1
+            else
+                w0_label = locate(lqsgw_data[1].Σ.mesh[1], 0)
+            end
+            Σ_static = real(d.Σ_ins[1, :]) + real(d.Σ[w0_label, :])
+            plot_spline(kSgrid / kF, Σ_static; ax=ax1, color="#$(colors(nstep + 1)[i])")
+        end
+        plot_spline(
+            kSgrid / kF,
+            Σ0_static;
+            ax=ax1,
+            ls="--",
+            color="k",
+            lw=1.5,
+            label="\$i=0\$",
+        )
+        plot_spline(
+            kSgrid / kF,
+            Σ1_static;
+            ax=ax1,
+            color=cdict["grey"],
+            lw=1.5,
+            label="\$i=1\$",
+        )
+        plot_spline(
+            kSgrid / kF,
+            Σ2_static;
+            ax=ax1,
+            color=cdict["red"],
+            lw=1.5,
+            label="\$i=2\$",
+        )
+        plot_spline(
+            kSgrid / kF,
+            Σsc_static;
+            ax=ax1,
+            color=cdict["teal"],
+            lw=1.5,
+            label="self-consistent",
+        )
+        # for (i, d) in enumerate(lqsgw_data)
+        #     i == 1 && continue
+        #     ax3.plot(kSgrid / kF, real(d.Σ_ins[1, :]); color="#$(colors(nstep + 1)[i])")
+        # end
+        # ax3.plot(kSgrid / kF, Σins0, "--"; color="k", lw=1.5, label="\$i=0\$")
+        # ax3.plot(kSgrid / kF, Σins1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
+        # ax3.plot(kSgrid / kF, Σins2; color=cdict["red"], lw=1.5, label="\$i=2\$")
+        # ax3.plot(kSgrid / kF, Σinssc; color=cdict["teal"], lw=1.5, label="self-consistent")
+        # for (i, d) in enumerate(lqsgw_data)
+        #     i == 1 && continue
+        #     if lqsgw_data[1].Σ.mesh[1].grid == [0]
+        #         w0_label = 1
+        #     else
+        #         w0_label = locate(lqsgw_data[1].Σ.mesh[1], 0)
+        #     end
+        #     ax1.plot(kSgrid / kF, real(d.Σ[w0_label, :]); color="#$(colors(nstep + 1)[i])")
+        # end
+        # ax1.plot(kSgrid / kF, Σ0, "--"; color="k", lw=1.5, label="\$i=0\$")
+        # ax1.plot(kSgrid / kF, Σ1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
+        # ax1.plot(kSgrid / kF, Σ2; color=cdict["red"], lw=1.5, label="\$i=2\$")
+        # ax1.plot(kSgrid / kF, Σsc; color=cdict["teal"], lw=1.5, label="self-consistent")
+
+        for (i, d) in enumerate(lqsgw_data)
+            i == 1 && continue
+            plot_spline(kSgrid / kF, d.Z_k; ax=ax2, color="#$(colors(nstep + 1)[i])")
+        end
+        # plot_spline(kSgrid / kF, Z0, "--"; ax=ax2, color="k", lw=1.5, label="\$i=0\$")
+        plot_spline(kSgrid / kF, Z1; ax=ax2, color=cdict["grey"], lw=1.5, label="\$i=1\$")
+        plot_spline(kSgrid / kF, Z2; ax=ax2, color=cdict["red"], lw=1.5, label="\$i=2\$")
+        plot_spline(
+            kSgrid / kF,
+            Zsc;
+            ax=ax2,
+            color=cdict["teal"],
+            lw=1.5,
+            label="self-consistent",
+        )
+
+        for (i, d) in enumerate(lqsgw_data)
+            i == 1 && continue
+            if lqsgw_data[1].Σ.mesh[1].grid == [0]
+                w0_label = 1
+            else
+                w0_label = locate(lqsgw_data[1].Σ.mesh[1], 0)
+            end
+            Σ_static = real(d.Σ_ins[1, :]) + real(d.Σ[w0_label, :])
+            Σ_static_interp = Interp.interp1DGrid(Σ_static, kSgrid, kgrid_plot)
+            dΣ_dk_static =
+                (Σ_static_interp[3:end] - Σ_static_interp[1:(end - 2)]) / (2 * dk_plot)
+            D_k = 1 .+ (param.me ./ kplot_cd) .* dΣ_dk_static
+            plot_spline(kplot_cd / kF, D_k; ax=ax3, color="#$(colors(nstep + 1)[i])")
+        end
+        plot_spline(
+            kplot_cd / kF,
+            Dk1;
+            ax=ax3,
+            color=cdict["grey"],
+            lw=1.5,
+            label="\$i=1\$",
+        )
+        plot_spline(kplot_cd / kF, Dk2; ax=ax3, color=cdict["red"], lw=1.5, label="\$i=2\$")
+        plot_spline(
+            kplot_cd / kF,
+            Dksc;
+            ax=ax3,
+            color=cdict["teal"],
+            lw=1.5,
+            label="self-consistent",
+        )
+
+        for (i, d) in enumerate(lqsgw_data)
+            i == 1 && continue
+            plot_spline(kSgrid / kF, d.E_k; ax=ax4, color="#$(colors(nstep + 1)[i])")
+        end
+        # plot_spline(
+        #     kSgrid / kF,
+        #     E0 * (paramold.rs / rs)^2,
+        #     "--";
+        #     color="k",
+        #     lw=1.5,
+        #     label="\$i=0\$",
+        # )
+        plot_spline(kSgrid / kF, E1; ax=ax4, color=cdict["grey"], lw=1.5, label="\$i=1\$")
+        plot_spline(kSgrid / kF, E2; ax=ax4, color=cdict["red"], lw=1.5, label="\$i=2\$")
+        plot_spline(
+            kSgrid / kF,
+            Esc;
+            ax=ax4,
+            color=cdict["teal"],
+            lw=1.5,
+            label="self-consistent",
+        )
+
+        for (i, d) in enumerate(lqsgw_data)
+            i == 1 && continue
+            plot_spline(
+                qPgrid / kF,
+                real(d.Π[1, :]);
+                ax=ax5,
+                color="#$(colors(nstep + 1)[i])",
+            )
+        end
+        # plot_spline(qPgrid / kF, Π0 * (paramold.rs / rs), "--"; ax=ax5, color="k", lw=1.5, label="\$i=0\$")
+        plot_spline(qPgrid / kF, Π1; ax=ax5, color=cdict["grey"], lw=1.5, label="\$i=1\$")
+        plot_spline(qPgrid / kF, Π2; ax=ax5, color=cdict["red"], lw=1.5, label="\$i=2\$")
+        plot_spline(
+            qPgrid / kF,
+            Πsc;
+            ax=ax5,
+            color=cdict["teal"],
+            lw=1.5,
+            label="self-consistent",
+        )
+
+        for (i, d) in enumerate(lqsgw_data)
+            i == 1 && continue
+            if lqsgw_data[1].Σ.mesh[1].grid == [0]
+                w0_label = 1
+            else
+                w0_label = locate(lqsgw_data[1].Σ.mesh[1], 0)
+            end
+            Σ_static = real(d.Σ_ins[1, :]) + real(d.Σ[w0_label, :])
+            Σ_static_interp = Interp.interp1DGrid(Σ_static, kSgrid, kgrid_plot)
+            dΣ_dk_static =
+                (Σ_static_interp[3:end] - Σ_static_interp[1:(end - 2)]) / (2 * dk_plot)
+            D_k = 1 .+ (param.me ./ kplot_cd) .* dΣ_dk_static
+            Z_k = Interp.interp1DGrid(d.Z_k, kSgrid, kplot_cd)
+            meff_k = 1 ./ (Z_k .* D_k)
+            maskinf = isinf.(meff_k)
+            meff_k[maskinf] .= 1.0
+            # println(meff_k)
+            plot_spline(kplot_cd / kF, meff_k; ax=ax6, color="#$(colors(nstep + 1)[i])")
+        end
+        plot_spline(
+            kplot_cd / kF,
+            meff1;
+            ax=ax6,
+            color=cdict["grey"],
+            lw=1.5,
+            label="\$i=1\$",
+        )
+        plot_spline(kplot_cd / kF, meff2; ax=ax6, color=cdict["red"], lw=1.5, label="\$i=2\$")
+        plot_spline(
+            kplot_cd / kF,
+            meffsc;
+            ax=ax6,
+            color=cdict["teal"],
+            lw=1.5,
+            label="self-consistent",
+        )
+        # for (i, d) in enumerate(lqsgw_data)
+        #     i == 1 && continue
+        #     plot_spline(
+        #         qPgrid / kF,
+        #         1 .+ real(d.W[1, :]) ./ V;
+        #         ax=ax6,
+        #         color="#$(colors(nstep + 1)[i])",
+        #     )
+        # end
+        # # plot_spline(qPgrid / kF, 1 .+ W0 ./ V, "--"; ax=ax6, color="k", lw=1.5, label="\$i=0\$")
+        # plot_spline(
+        #     qPgrid / kF,
+        #     1 .+ W1 ./ V;
+        #     ax=ax6,
+        #     color=cdict["grey"],
+        #     lw=1.5,
+        #     label="\$i=1\$",
+        # )
+        # plot_spline(
+        #     qPgrid / kF,
+        #     1 .+ W2 ./ V;
+        #     ax=ax6,
+        #     color=cdict["red"],
+        #     lw=1.5,
+        #     label="\$i=2\$",
+        # )
+        # plot_spline(
+        #     qPgrid / kF,
+        #     1 .+ Wsc ./ V;
+        #     ax=ax6,
+        #     color=cdict["teal"],
+        #     lw=1.5,
+        #     label="self-consistent",
+        # )
+
+        ax1.set_ylabel("\$\\text{Re}\\Sigma(k, i\\omega_0)\$")
+        ax2.set_ylabel("\$Z(k)\$")
+        ax3.set_ylabel("\$D(k)\$")
+        ax4.set_ylabel("\$\\mathcal{E}_\\text{qp}(k)\$")
+        ax5.set_ylabel("\$\\Pi_\\text{qp}(q, i\\nu_m = 0)\$")
+        ax6.set_ylabel("\$\\frac{m*}{m}(k)\$")
+        # ax6.set_ylabel("\$\\epsilon^{-1}_\\text{qp}(q, i\\nu_m = 0)\$")
+        # ax6.set_ylabel("\$\\epsilon^{-1}_\\text{qp}(q, 0) = W_\\text{qp}(q, 0) / V(q)\$")
+
+        ax1.set_xlim(0, 4)
+        ax1.set_ylim(nothing, -0.04)
+        # ax3.set_ylim(-0.46, 0.02)
+        # ax1.set_xlim(0, 2)
+        # ax1.set_ylim(-5.2e-8, 0.2e-8)
+        ax2.set_xlim(0, 4)
+        ax3.set_xlim(0, 4)
+        ax4.set_xlim(0, 2)
+        ax4.set_ylim(-0.16, 0.22)
+        ax5.set_xlim(0, 4)
+        ax6.set_xlim(0, 4)
+        ax6.set_ylim(0.99, 1.16)
+        # ax5.set_xlim(0, 0.1)
+
+        # x-axis on last subplot
+        ax1.set_xlabel("\$k / k_F\$")
+        ax2.set_xlabel("\$k / k_F\$")
+        ax3.set_xlabel("\$k / k_F\$")
+        ax4.set_xlabel("\$k / k_F\$")
+        ax5.set_xlabel("\$q / k_F\$")
+        ax6.set_xlabel("\$q / k_F\$")
+
+        ax1.legend(; loc="lower right", fontsize=14)
+        ax2.legend(; loc="lower right", fontsize=14)
+        ax3.legend(; loc="upper right", fontsize=14)
+        ax4.legend(; loc="lower right", fontsize=14)
+        ax5.legend(; loc="lower right", fontsize=14)
+        ax6.legend(; loc="upper right", fontsize=14)
+
+        plt.subplots_adjust(; wspace=wspace)
+        plt.savefig(savename)
+        # plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs)_prev_rs_without_rescale.pdf")
+        # plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs)_prev_rs_with_rescale.pdf")
+        # plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs)_no_prev_rs.pdf")
     end
-    ax2.plot(kSgrid / kF, Σ0, "--"; color="k", lw=1.5, label="\$i=0\$")
-    ax2.plot(kSgrid / kF, Σ1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
-    ax2.plot(kSgrid / kF, Σ2; color=cdict["red"], lw=1.5, label="\$i=2\$")
-    ax2.plot(kSgrid / kF, Σsc; color=cdict["teal"], lw=1.5, label="self-consistent")
-
-    for (i, d) in enumerate(lqsgw_data)
-        i == 1 && continue
-        ax3.plot(kSgrid / kF, d.E_k; color="#$(colors(nstep + 1)[i])")
-    end
-    # ax3.plot(
-    #     kSgrid / kF,
-    #     E0 * (paramold.rs / rs)^2,
-    #     "--";
-    #     color="k",
-    #     lw=1.5,
-    #     label="\$i=0\$",
-    # )
-    ax3.plot(kSgrid / kF, E1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
-    ax3.plot(kSgrid / kF, E2; color=cdict["red"], lw=1.5, label="\$i=2\$")
-    ax3.plot(kSgrid / kF, Esc; color=cdict["teal"], lw=1.5, label="self-consistent")
-
-    for (i, d) in enumerate(lqsgw_data)
-        i == 1 && continue
-        ax4.plot(kSgrid / kF, d.Z_k; color="#$(colors(nstep + 1)[i])")
-    end
-    # ax4.plot(kSgrid / kF, Z0, "--"; color="k", lw=1.5, label="\$i=0\$")
-    ax4.plot(kSgrid / kF, Z1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
-    ax4.plot(kSgrid / kF, Z2; color=cdict["red"], lw=1.5, label="\$i=2\$")
-    ax4.plot(kSgrid / kF, Zsc; color=cdict["teal"], lw=1.5, label="self-consistent")
-
-    for (i, d) in enumerate(lqsgw_data)
-        i == 1 && continue
-        ax5.plot(qPgrid / kF, real(d.Π[1, :]); color="#$(colors(nstep + 1)[i])")
-    end
-    # ax5.plot(qPgrid / kF, Π0 * (paramold.rs / rs), "--"; color="k", lw=1.5, label="\$i=0\$")
-    ax5.plot(qPgrid / kF, Π1; color=cdict["grey"], lw=1.5, label="\$i=1\$")
-    ax5.plot(qPgrid / kF, Π2; color=cdict["red"], lw=1.5, label="\$i=2\$")
-    ax5.plot(qPgrid / kF, Πsc; color=cdict["teal"], lw=1.5, label="self-consistent")
-
-    for (i, d) in enumerate(lqsgw_data)
-        i == 1 && continue
-        ax6.plot(qPgrid / kF, 1 .+ real(d.W[1, :]) ./ V; color="#$(colors(nstep + 1)[i])")
-    end
-    # ax6.plot(qPgrid / kF, 1 .+ W0 ./ V, "--"; color="k", lw=1.5, label="\$i=0\$")
-    ax6.plot(qPgrid / kF, 1 .+ W1 ./ V; color=cdict["grey"], lw=1.5, label="\$i=1\$")
-    ax6.plot(qPgrid / kF, 1 .+ W2 ./ V; color=cdict["red"], lw=1.5, label="\$i=2\$")
-    ax6.plot(
-        qPgrid / kF,
-        1 .+ Wsc ./ V;
-        color=cdict["teal"],
-        lw=1.5,
-        label="self-consistent",
-    )
-
-    ax1.set_ylabel("\$\\Sigma_\\text{ins}(k, i\\omega_0)\$")
-    ax2.set_ylabel("\$\\Sigma_\\text{dyn}(k, i\\omega_0)\$")
-    ax3.set_ylabel("\$\\mathcal{E}_\\text{qp}(k)\$")
-    ax4.set_ylabel("\$Z(k)\$")
-    ax5.set_ylabel("\$\\Pi_\\text{qp}(q, 0)\$")
-    ax6.set_ylabel("\$\\epsilon^{-1}_\\text{qp}(q, 0) = W_\\text{qp}(q, 0) / V(q)\$")
-
-    ax1.set_xlim(0, 2)
-    ax1.set_ylim(-0.46, 0.02)
-    ax2.set_xlim(0, 2)
-    # ax2.set_ylim(-5.2e-8, 0.2e-8)
-    ax3.set_xlim(0, 2)
-    ax3.set_ylim(-0.16, 0.22)
-    ax4.set_xlim(0, 4)
-    ax5.set_xlim(0, 4)
-    ax6.set_xlim(0, 4)
-    # ax5.set_xlim(0, 0.1)
-
-    # x-axis on last subplot
-    ax1.set_xlabel("\$k / k_F\$")
-    ax2.set_xlabel("\$k / k_F\$")
-    ax3.set_xlabel("\$k / k_F\$")
-    ax4.set_xlabel("\$k / k_F\$")
-    ax5.set_xlabel("\$q / k_F\$")
-    ax6.set_xlabel("\$q / k_F\$")
-
-    ax1.legend(; loc="lower right", fontsize=14)
-    ax2.legend(; loc="upper right", fontsize=14)
-    ax3.legend(; loc="lower right", fontsize=14)
-    ax4.legend(; loc="lower right", fontsize=14)
-    ax5.legend(; loc="lower right", fontsize=14)
-    ax6.legend(; loc="lower right", fontsize=14)
-
-    plt.subplots_adjust(; wspace=wspace)
-    # plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs)_prev_rs_without_rescale.pdf")
-    # plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs)_prev_rs_with_rescale.pdf")
-    plt.savefig("lqsgw_convergence_$(int_type)_rs=$(rs)_no_prev_rs.pdf")
     return
 
     # # Plot Σ_ins convergence

@@ -563,37 +563,49 @@ function main()
         # Load one-shot data
         meff_os_g0w0, z_os_g0w0 = load_oneshot_data_new_format(param, :rpa)
         meff_os_fp, z_os_fp = load_oneshot_data_new_format(param, int_type_fp)
-        # meff_os_fp_fm, z_os_fp_fm = load_oneshot_data_new_format(param, int_type_fp_fm)
+        # if rs < 8.0
+            meff_os_fp_fm, z_os_fp_fm = load_oneshot_data_new_format(param, int_type_fp_fm)
+        # end
         push!(mefflist_os_g0w0, meff_os_g0w0)
         push!(mefflist_os_fp, meff_os_fp)
-        # push!(mefflist_os_fp_fm, meff_os_fp_fm)
+        # if rs < 8.0
+            push!(mefflist_os_fp_fm, meff_os_fp_fm)
+        # end
         push!(zlist_os_g0w0, z_os_g0w0)
         push!(zlist_os_fp, z_os_fp)
-        # push!(zlist_os_fp_fm, z_os_fp_fm)
+        # if rs < 8.0
+            push!(zlist_os_fp_fm, z_os_fp_fm)
+        # end
         # Load LQSGW data
         meff_g0w0, z_g0w0 = load_lqsgw_data_new_format(param, :rpa)
         meff_fp, z_fp = load_lqsgw_data_new_format(param, int_type_fp)
-        # meff_fp_fm, z_fp_fm = load_lqsgw_data_new_format(param, int_type_fp_fm)
+        if rs < 8.0
+            meff_fp_fm, z_fp_fm = load_lqsgw_data_new_format(param, int_type_fp_fm)
+        end
         push!(mefflist_g0w0, meff_g0w0)
         push!(mefflist_fp, meff_fp)
-        # push!(mefflist_fp_fm, meff_fp_fm)
+        if rs < 8.0
+            push!(mefflist_fp_fm, meff_fp_fm)
+        end
         push!(zlist_g0w0, z_g0w0)
         push!(zlist_fp, z_fp)
-        # push!(zlist_fp_fm, z_fp_fm)
+        if rs < 8.0
+            push!(zlist_fp_fm, z_fp_fm)
+        end
     end
     pushfirst!(rslist, 0.0)
     pushfirst!(mefflist_os_g0w0, 1.0)
     pushfirst!(mefflist_os_fp, 1.0)
-    # pushfirst!(mefflist_os_fp_fm, 1.0)
+    pushfirst!(mefflist_os_fp_fm, 1.0)
     pushfirst!(mefflist_g0w0, 1.0)
     pushfirst!(mefflist_fp, 1.0)
-    # pushfirst!(mefflist_fp_fm, 1.0)
+    pushfirst!(mefflist_fp_fm, 1.0)
     pushfirst!(zlist_os_g0w0, 1.0)
     pushfirst!(zlist_os_fp, 1.0)
-    # pushfirst!(zlist_os_fp_fm, 1.0)
+    pushfirst!(zlist_os_fp_fm, 1.0)
     pushfirst!(zlist_g0w0, 1.0)
     pushfirst!(zlist_fp, 1.0)
-    # pushfirst!(zlist_fp_fm, 1.0)
+    pushfirst!(zlist_fp_fm, 1.0)
 
     rs_FlapwMBPT = [1, 2, 3, 4, 5]
     m_FlapwMBPT =
@@ -680,20 +692,11 @@ function main()
     #     zorder=100,
     # )
 
-    # indices = [2, 3, 4]
-    # meff_oneshot = [mefflist_os_g0w0, mefflist_os_fp, mefflist_os_fp_fm]
-    indices = [2, 3]
-    meff_oneshot = [mefflist_os_g0w0, mefflist_os_fp]
-    labels = [
-        "\$G_0 W_0\$",
-        # "\$G_0 \\mathcal{W}^+_{0}\$",
-        # "\$G_0 \\mathcal{W}_0\$",
-        "\$G_0 W^\\text{KO}_{0,+}\$",
-        # "\$G_0 W^\\text{KO}_0\$",
-        # "\$G_0 W^+_\\text{KO}\$$(reflabels[2])",
-        # "\$G_0 W_\\text{KO}\$$(reflabels[2])",
-    ]
-    for (mefflist, label, idx) in zip(meff_oneshot, labels, indices)
+    indices = [2, 3, 4]
+    rslists = [rslist, rslist, rslist[rslist .< 8.0]]
+    meff_oneshot = [mefflist_os_g0w0, mefflist_os_fp, mefflist_os_fp_fm]
+    labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}\$", "\$G_0 W^\\text{KO}_0\$"]
+    for (rs, mefflist, label, idx) in zip(rslists, meff_oneshot, labels, indices)
         print("\nPlotting ", label)
         handle = plot_mvsrs(
             rslist,
@@ -725,7 +728,6 @@ function main()
         rslist,
         mefflist_fp,
         6,
-        # "LQSG\$\\mathcal{W}^+\$",
         "LQSGW\$^\\text{KO}_+\$",
         ax;
         ls="-",
@@ -735,18 +737,18 @@ function main()
     )
     # ax.scatter(rslist, mefflist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
-    # plot_mvsrs(
-    #     rslist,
-    #     mefflist_fp_fm,
-    #     7,
-    #     # "LQSG\$\\mathcal{W}\$",
-    #     "LQSGW\$^\\text{KO}\$",
-    #     ax;
-    #     ls="-",
-    #     rs_HDL=rs_HDL,
-    #     meff_HDL=meff_HDL,
-    #     zorder=30,
-    # )
+    plot_mvsrs(
+        rslist[rslist .< 8.0],
+        mefflist_fp_fm,
+        7,
+        "LQSGW\$^\\text{KO}\$",
+        ax;
+        ls="-",
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+        zorder=30,
+    )
+    ax.scatter([7.5], [mefflist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
     # ax.scatter(rslist, mefflist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
     # ax.plot(rslist, mefflist_g0w0, "o-"; label="LQSGW", color=color[2])
     # ax.plot(rslist, mefflist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
@@ -819,20 +821,11 @@ function main()
     #     zorder=100,
     # )
 
-    # indices = [2, 3, 4]
-    # z_oneshot = [zlist_os_g0w0, zlist_os_fp, zlist_os_fp_fm]
-    indices = [2, 3]
-    z_oneshot = [zlist_os_g0w0, zlist_os_fp]
-    labels = [
-        "\$G_0 W_0\$",
-        # "\$G_0 \\mathcal{W}^+_{0}\$",
-        # "\$G_0 \\mathcal{W}_0\$",
-        "\$G_0 W^\\text{KO}_{0,+}\$",
-        # "\$G_0 W^\\text{KO}_0\$",
-        # "\$G_0 W^+_\\text{KO}\$$(reflabels[2])",
-        # "\$G_0 W_\\text{KO}\$$(reflabels[2])",
-    ]
-    for (zlist, label, idx) in zip(z_oneshot, labels, indices)
+    # rslists = [rslist, rslist, rslist[rslist .< 8.0]]
+    indices = [2, 3, 4]
+    z_oneshot = [zlist_os_g0w0, zlist_os_fp, zlist_os_fp_fm]
+    labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}\$", "\$G_0 W^\\text{KO}_0\$"]
+    for (rs, zlist, label, idx) in zip(rslists, z_oneshot, labels, indices)
         print("\nPlotting ", label)
         handle = plot_mvsrs(rslist, zlist, idx, label, ax; ls="--")
         # l1_handles.append(handle)
@@ -844,17 +837,18 @@ function main()
     plot_mvsrs(rslist, zlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
     # ax.scatter(rslist, zlist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
-    # plot_mvsrs(
-    #     rslist,
-    #     zlist_fp_fm,
-    #     7,
-    #     "LQSGW\$^\\text{KO}\$",
-    #     ax;
-    #     ls="-",
-    #     # rs_HDL=rs_HDL,
-    #     # meff_HDL=meff_HDL,
-    #     zorder=30,
-    # )
+    plot_mvsrs(
+        rslist[rslist .< 8.0],
+        zlist_fp_fm,
+        7,
+        "LQSGW\$^\\text{KO}\$",
+        ax;
+        ls="-",
+        # rs_HDL=rs_HDL,
+        # meff_HDL=meff_HDL,
+        zorder=30,
+    )
+    ax.scatter([7.5], [zlist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
     # ax.scatter(rslist, zlist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
     # ax.plot(rslist, zlist_g0w0, "o-"; label="LQSGW", color=color[2])
     # ax.plot(rslist, zlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
