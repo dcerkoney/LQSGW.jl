@@ -4,6 +4,7 @@ using ElectronGas
 using JLD2
 using Lehmann
 using LQSGW
+using Measurements
 using Parameters
 using PyCall
 using PyPlot
@@ -80,20 +81,6 @@ function spline(x, y, e; xmin=0.0, xmax=x[end])
     return __x, yfit
 end
 
-# function loadmeffnpz(
-#     param::Parameter.Para,
-#     int_type,
-#     δK=5e-6,
-#     max_steps=300,
-#     savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
-#     savename="lqsgw_$(param.dim)d_$(int_type)_merged.npz",
-# )
-#     meff = massratio(param, s, si, δK)[1]
-#     zfactor = zfactor_fermi(param, s)
-#     println("(rs = $(param.rs)) Loaded mass data from converged step $n_max")
-#     return datadict
-# end
-
 function loaddata_old_format(
     param::Parameter.Para,
     int_type,
@@ -121,6 +108,54 @@ function loaddata_old_format(
     return meff, zfactor
 end
 
+# New data format
+function derive_dfactor_lqsgw(
+    param::Parameter.Para,
+    int_type;
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
+)
+    local data
+    max_step = -1
+    jldopen(joinpath(savedir, savename), "r") do file
+        # Ensure that the saved data was convergent
+        @assert file["converged"] == true "Specificed save data did not converge!"
+        # Find the converged data in JLD2 file
+        for i in 0:(LQSGW.MAXIMUM_STEPS)
+            if haskey(file, string(i))
+                max_step = i
+                data = file[string(i)]
+            else
+                break
+            end
+        end
+        if max_step < 0
+            error("No data found in $(savedir)!")
+        end
+        println("Found converged data with max_step=$(max_step) for savename $(savename)!")
+    end
+    dfactor = LQSGW.dfactor(param, data.Σ, data.Σ_ins)
+    return dfactor
+end
+function derive_dfactor_oneshot(
+    param::Parameter.Para,
+    int_type;
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
+)
+    local data
+    jldopen(joinpath(savedir, savename), "r") do f
+        if haskey(f, string(0))
+            data = f[string(0)]
+        else
+            error("No one-shot data found in $(savedir)!")
+        end
+        println("Found one-shot data for savename $(savename)!")
+    end
+    dfactor = LQSGW.dfactor(param, data.Σ, data.Σ_ins)
+    return dfactor
+end
+
 # New data
 function load_lqsgw_data_new_format(
     param::Parameter.Para,
@@ -133,21 +168,6 @@ function load_lqsgw_data_new_format(
     # max_step = -1
     filename = joinpath(savedir, savename)
     jldopen(filename, "r") do f
-        # # Ensure that the saved data was convergent
-        # @assert f["converged"] == true "Specificed save data did not converge!"
-        # # Find the converged data in JLD2 file
-        # for i in 0:(LQSGW.MAXIMUM_STEPS)
-        #     if haskey(f, string(i))
-        #         max_step = i
-        #         data = f[string(i)]
-        #     else
-        #         break
-        #     end
-        # end
-        # if max_step < 0
-        #     error("No data found in $(savedir)!")
-        # end
-        # println("Found converged data with max_step=$(max_step) for savename $(savename)!")
         _rs = round(param.rs; sigdigits=4)
         if haskey(f, string(_rs))
             data = f[string(_rs)]
@@ -159,7 +179,8 @@ function load_lqsgw_data_new_format(
             error("No data for rs = $(_rs) found in $(savedir)!")
         end
     end
-    return data.meff, data.zfactor
+    dfactor = derive_dfactor_lqsgw(param, int_type; savedir=savedir)
+    return data.meff, data.zfactor, dfactor
 end
 function load_oneshot_data_new_format(
     param::Parameter.Para,
@@ -171,12 +192,6 @@ function load_oneshot_data_new_format(
     local data
     filename = joinpath(savedir, savename)
     jldopen(filename, "r") do f
-        # if haskey(f, string(0))
-        #     data = f[string(0)]
-        # else
-        #     error("No one-shot data found in $(savedir)!")
-        # end
-        # println("Found one-shot data for savename $(savename)!")
         _rs = round(param.rs; sigdigits=4)
         if haskey(f, string(_rs))
             data = f[string(_rs)]
@@ -184,7 +199,8 @@ function load_oneshot_data_new_format(
             error("No data for rs=$(_rs) found in $(savedir)!")
         end
     end
-    return data.meff, data.zfactor
+    dfactor = derive_dfactor_oneshot(param, int_type; savedir=savedir)
+    return data.meff, data.zfactor, dfactor
 end
 
 function plot_landaufunc(
@@ -527,7 +543,7 @@ function main()
     dim = 3
     # constant_fs = true
     constant_fs = false
-
+ 
     # plot_landaufunc(beta, collect(sort!(unique!([1; LinRange(0.01, 5, 2001)]))); dir="")
     # plot_landaufunc(beta, [1]; dir="")
     # return
@@ -551,46 +567,55 @@ function main()
     zlist_os_g0w0 = []
     zlist_os_fp = []
     zlist_os_fp_fm = []
+    dlist_os_g0w0 = []
+    dlist_os_fp = []
+    dlist_os_fp_fm = []
     mefflist_g0w0 = []
     mefflist_fp = []
     mefflist_fp_fm = []
     zlist_g0w0 = []
     zlist_fp = []
     zlist_fp_fm = []
+    dlist_g0w0 = []
+    dlist_fp = []
+    dlist_fp_fm = []
     for rs in rslist
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF, β = param
         # Load one-shot data
-        meff_os_g0w0, z_os_g0w0 = load_oneshot_data_new_format(param, :rpa)
-        meff_os_fp, z_os_fp = load_oneshot_data_new_format(param, int_type_fp)
-        # if rs < 8.0
-            meff_os_fp_fm, z_os_fp_fm = load_oneshot_data_new_format(param, int_type_fp_fm)
-        # end
+        meff_os_g0w0, z_os_g0w0, d_os_g0w0 = load_oneshot_data_new_format(param, :rpa)
+        meff_os_fp, z_os_fp, d_os_fp = load_oneshot_data_new_format(param, int_type_fp)
+        meff_os_fp_fm, z_os_fp_fm, d_os_fp_fm =
+            load_oneshot_data_new_format(param, int_type_fp_fm)
         push!(mefflist_os_g0w0, meff_os_g0w0)
         push!(mefflist_os_fp, meff_os_fp)
-        # if rs < 8.0
-            push!(mefflist_os_fp_fm, meff_os_fp_fm)
-        # end
+        push!(mefflist_os_fp_fm, meff_os_fp_fm)
         push!(zlist_os_g0w0, z_os_g0w0)
         push!(zlist_os_fp, z_os_fp)
-        # if rs < 8.0
-            push!(zlist_os_fp_fm, z_os_fp_fm)
-        # end
+        push!(zlist_os_fp_fm, z_os_fp_fm)
+        push!(dlist_os_g0w0, d_os_g0w0)
+        push!(dlist_os_fp, d_os_fp)
+        push!(dlist_os_fp_fm, d_os_fp_fm)
         # Load LQSGW data
-        meff_g0w0, z_g0w0 = load_lqsgw_data_new_format(param, :rpa)
-        meff_fp, z_fp = load_lqsgw_data_new_format(param, int_type_fp)
-        if rs < 8.0
-            meff_fp_fm, z_fp_fm = load_lqsgw_data_new_format(param, int_type_fp_fm)
+        meff_g0w0, z_g0w0, d_g0w0 = load_lqsgw_data_new_format(param, :rpa)
+        meff_fp, z_fp, d_fp = load_lqsgw_data_new_format(param, int_type_fp)
+        if constant_fs || rs < 8.0
+            meff_fp_fm, z_fp_fm, d_fp_fm = load_lqsgw_data_new_format(param, int_type_fp_fm)
         end
         push!(mefflist_g0w0, meff_g0w0)
         push!(mefflist_fp, meff_fp)
-        if rs < 8.0
+        if constant_fs || rs < 8.0
             push!(mefflist_fp_fm, meff_fp_fm)
         end
         push!(zlist_g0w0, z_g0w0)
         push!(zlist_fp, z_fp)
-        if rs < 8.0
+        if constant_fs || rs < 8.0
             push!(zlist_fp_fm, z_fp_fm)
+        end
+        push!(dlist_g0w0, d_g0w0)
+        push!(dlist_fp, d_fp)
+        if constant_fs || rs < 8.0
+            push!(dlist_fp_fm, d_fp_fm)
         end
     end
     pushfirst!(rslist, 0.0)
@@ -606,6 +631,12 @@ function main()
     pushfirst!(zlist_g0w0, 1.0)
     pushfirst!(zlist_fp, 1.0)
     pushfirst!(zlist_fp_fm, 1.0)
+    pushfirst!(dlist_os_g0w0, 1.0)
+    pushfirst!(dlist_os_fp, 1.0)
+    pushfirst!(dlist_os_fp_fm, 1.0)
+    pushfirst!(dlist_g0w0, 1.0)
+    pushfirst!(dlist_fp, 1.0)
+    pushfirst!(dlist_fp_fm, 1.0)
 
     rs_FlapwMBPT = [1, 2, 3, 4, 5]
     m_FlapwMBPT =
@@ -629,6 +660,13 @@ function main()
     m_SJVMC_err = [0, 0.01, 0.02, 0.02, 0.02, 0.03]
     z_SJVMC = [1.0, 0.894, 0.82, 0.69, 0.61, 0.45]
     z_SJVMC_err = [0, 0.009, 0.01, 0.01, 0.01, 0.01]
+
+    # derive D-factor from VMC data (m*/m = 1 / (Z * D))
+    m_meas_SJVMC = measurement.(m_SJVMC, m_SJVMC_err)
+    z_meas_SJVMC = measurement.(z_SJVMC, z_SJVMC_err)
+    d_meas_SJVMC = 1 ./ (z_meas_SJVMC .* m_meas_SJVMC)
+    d_SJVMC = Measurements.value.(d_meas_SJVMC)
+    d_SJVMC_err = Measurements.uncertainty.(d_meas_SJVMC)
 
     rs_DMC = [0, 1, 2, 3, 4, 5]
     m_DMC = [1.0, 0.918, 0.879, 0.856, 0.842, 0.791]
@@ -692,8 +730,12 @@ function main()
     #     zorder=100,
     # )
 
+    if constant_fs
+        rslists = [rslist, rslist, rslist]
+    else
+        rslists = [rslist, rslist, rslist[rslist .< 8.0]]
+    end
     indices = [2, 3, 4]
-    rslists = [rslist, rslist, rslist[rslist .< 8.0]]
     meff_oneshot = [mefflist_os_g0w0, mefflist_os_fp, mefflist_os_fp_fm]
     labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}\$", "\$G_0 W^\\text{KO}_0\$"]
     for (rs, mefflist, label, idx) in zip(rslists, meff_oneshot, labels, indices)
@@ -737,8 +779,13 @@ function main()
     )
     # ax.scatter(rslist, mefflist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
+    if constant_fs
+        rs_cut = rslist
+    else
+        rs_cut = rslist[rslist .< 8.0]
+    end
     plot_mvsrs(
-        rslist[rslist .< 8.0],
+        rs_cut,
         mefflist_fp_fm,
         7,
         "LQSGW\$^\\text{KO}\$",
@@ -748,7 +795,9 @@ function main()
         meff_HDL=meff_HDL,
         zorder=30,
     )
-    ax.scatter([7.5], [mefflist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
+    if constant_fs == false
+        ax.scatter([7.5], [mefflist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
+    end
     # ax.scatter(rslist, mefflist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
     # ax.plot(rslist, mefflist_g0w0, "o-"; label="LQSGW", color=color[2])
     # ax.plot(rslist, mefflist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
@@ -821,7 +870,6 @@ function main()
     #     zorder=100,
     # )
 
-    # rslists = [rslist, rslist, rslist[rslist .< 8.0]]
     indices = [2, 3, 4]
     z_oneshot = [zlist_os_g0w0, zlist_os_fp, zlist_os_fp_fm]
     labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}\$", "\$G_0 W^\\text{KO}_0\$"]
@@ -837,8 +885,13 @@ function main()
     plot_mvsrs(rslist, zlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
     # ax.scatter(rslist, zlist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
+    if constant_fs
+        rs_cut = rslist
+    else
+        rs_cut = rslist[rslist .< 8.0]
+    end
     plot_mvsrs(
-        rslist[rslist .< 8.0],
+        rs_cut,
         zlist_fp_fm,
         7,
         "LQSGW\$^\\text{KO}\$",
@@ -848,7 +901,9 @@ function main()
         # meff_HDL=meff_HDL,
         zorder=30,
     )
-    ax.scatter([7.5], [zlist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
+    if constant_fs == false
+        ax.scatter([7.5], [zlist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
+    end
     # ax.scatter(rslist, zlist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
     # ax.plot(rslist, zlist_g0w0, "o-"; label="LQSGW", color=color[2])
     # ax.plot(rslist, zlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
@@ -877,7 +932,9 @@ function main()
     # )
     # # plot_mvsrs(rs_VDMC[2:end], z_VDMC[2:end], 8, "", ax; ls="-", zorder=1000)
 
-    if constant_fs# ax.plot(rslist, zlist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
+    # ax.plot(rslist, zlist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
+
+    if constant_fs
         ax.set_title(
             "Constant \$F_\\pm\$";
             # "\$F^+(q) \\approx 1 - {\\kappa_0}/{\\kappa},\\; F^-(q) \\approx 1 - {\\chi_0}/{\\chi}\$";
@@ -894,6 +951,74 @@ function main()
     ax.legend(; loc="upper right", fontsize=12)
     plt.tight_layout()
     fig.savefig("zfactor_lqsgw_vs_rs_$(fsstr).pdf")
+
+    # Plot D convergence
+    fig, ax = plt.subplots(; figsize=(5, 5))
+
+    indices = [2, 3, 4]
+    d_oneshot = [dlist_os_g0w0, dlist_os_fp, dlist_os_fp_fm]
+    labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}\$", "\$G_0 W^\\text{KO}_0\$"]
+    for (rs, dlist, label, idx) in zip(rslists, d_oneshot, labels, indices)
+        print("\nPlotting ", label)
+        handle = plot_mvsrs(rslist, dlist, idx, label, ax; ls="--")
+        # l1_handles.append(handle)
+    end
+
+    plot_mvsrs(rslist, dlist_g0w0, 5, "LQSGW", ax; ls="-", zorder=10)
+    # ax.scatter(rslist, dlist_g0w0, 20; color=colors[5], zorder=10, facecolors="none")
+
+    plot_mvsrs(rslist, dlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
+    # ax.scatter(rslist, dlist_fp, 20; color=colors[6], zorder=20, facecolors="none")
+
+    if constant_fs
+        rs_cut = rslist
+    else
+        rs_cut = rslist[rslist .< 8.0]
+    end
+    plot_mvsrs(
+        rs_cut,
+        dlist_fp_fm,
+        7,
+        "LQSGW\$^\\text{KO}\$",
+        ax;
+        ls="-",
+        zorder=30,
+    )
+    if constant_fs == false
+        ax.scatter([7.5], [dlist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
+    end
+    # ax.scatter(rslist, dlist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
+    # ax.plot(rslist, dlist_g0w0, "o-"; label="LQSGW", color=color[2])
+    # ax.plot(rslist, dlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
+
+    # VMC results
+    errorbar_mvsrs(
+        rs_VMC[2:end],
+        d_SJVMC[2:end],
+        d_SJVMC_err[2:end],
+        1,
+        "VMC",
+        ax;
+        zorder=500,
+    )
+
+    if constant_fs
+        ax.set_title(
+            "Constant \$F_\\pm\$";
+            # "\$F^+(q) \\approx 1 - {\\kappa_0}/{\\kappa},\\; F^-(q) \\approx 1 - {\\chi_0}/{\\chi}\$";
+            pad=10,
+            fontsize=16,
+        )
+    else
+        ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
+    end
+    # ax.set_ylim(0.42, 1.02)
+    ax.set_xticks(0:2:10)
+    ax.set_xlabel("\$r_s\$")
+    ax.set_ylabel("\$D_F\$")
+    ax.legend(; loc="upper left", fontsize=12, ncol=1)
+    plt.tight_layout()
+    fig.savefig("dfactor_lqsgw_vs_rs_$(fsstr).pdf")
 
     return
 end

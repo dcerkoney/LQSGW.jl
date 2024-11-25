@@ -28,6 +28,7 @@ export bare_energy,
     chemicalpotential,
     zfactor_fermi,
     zfactor_full,
+    dfactor,
     massratio,
     get_lqsgw_properties,
     get_g0w0_properties

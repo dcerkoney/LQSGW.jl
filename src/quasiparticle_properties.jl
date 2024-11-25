@@ -125,9 +125,9 @@ end
 """
     function zfactor_full(param, Σ::GreenFunc.MeshArray)
     
-Calculate the momentum-dependent z-factor of the self-energy with improved finite-temperature scaling,
+Calculate the momentum-dependent Z-factor of the self-energy with improved finite-temperature scaling,
 ```math
-    z_k=\\frac{1}{1-\\frac{\\partial Im\\Sigma(k, 0^+)}{\\partial \\omega}}
+    Z_k=\\frac{1}{1-\\frac{\\partial Im\\Sigma(k, 0^+)}{\\partial \\omega}}
 ```
 """
 function zfactor_full(param, Σ::GreenFunc.MeshArray)
@@ -151,9 +151,9 @@ end
 """
     function zfactor_fermi(param, Σ::GreenFunc.MeshArray; kamp=param.kF)
     
-Calculate the z-factor of the self-energy at the momentum kamp with improved finite-temperature scaling,
+Calculate the Z-factor of the self-energy at the momentum kamp with improved finite-temperature scaling,
 ```math
-    z_k=\\frac{1}{1-\\frac{\\partial Im\\Sigma(k, 0^+)}{\\partial \\omega}}
+    Z_k=\\frac{1}{1-\\frac{\\partial Im\\Sigma(k, 0^+)}{\\partial \\omega}}
 ```
 """
 function zfactor_fermi(param, Σ::GreenFunc.MeshArray; kamp=param.kF)
@@ -178,11 +178,54 @@ function zfactor_fermi(param, Σ::GreenFunc.MeshArray; kamp=param.kF)
 end
 
 """
+    function dfactor(param, Σ::GreenFunc.MeshArray, δK=5e-6; kamp=param.kF)
+    
+Calculate the D-factor of the self-energy at the momentum kamp,
+```math
+    D_k=\\left(1+\\frac{m}{k}\\frac{\\partial Re\\Sigma(k, 0)}{\\partial k}\\right)^{-1}
+```
+"""
+function dfactor(
+    param,
+    Σ::GreenFunc.MeshArray,
+    Σ_ins::GreenFunc.MeshArray,
+    δK=5e-6;
+    kamp=param.kF,
+)
+    @assert Σ.mesh[1] isa ImFreq "Σ must be dynamic self-energy data in the Matsubara frequency domain!"
+    @assert 0 in Σ.mesh[1].grid "Static component not found in Σ MeshArray!"
+    # one can achieve ~1e-5 accuracy with δK = 5e-6
+    @unpack kF, me = param
+
+    δK *= kF
+    if Σ.mesh[1].grid == [0]
+        w0_label = 1
+    else
+        w0_label = locate(Σ.mesh[1], 0)
+    end
+    k_label = locate(Σ.mesh[2], kamp)
+
+    kgrid = Σ.mesh[2]
+    kamp = Σ.mesh[2][k_label]
+
+    k1, k2 = k_label, k_label + 1
+    while abs(kgrid[k2] - kgrid[k1]) < δK
+        k2 += 1
+    end
+
+    Σ_static1 = real(Σ[w0_label, k1] + Σ_ins[1, k1])
+    Σ_static2 = real(Σ[w0_label, k2] + Σ_ins[1, k2])
+    ds_dk = (Σ_static1 - Σ_static2) / (kgrid[k1] - kgrid[k2])
+    D0 = 1 + (me / kamp) * ds_dk
+    return D0
+end
+
+"""
     function massratio(param, Σ::GreenFunc.MeshArray, Σ_ins::GreenFunc.MeshArray, δK=5e-6; kamp=param.kF)
     
 Calculate the effective mass of the self-energy at the momentum kamp,
 ```math
-    \\frac{m^*_k}{m}=\\frac{1}{z_k} \\cdot \\left(1+\\frac{m}{k}\\frac{\\partial Re\\Sigma(k, 0)}{\\partial k}\\right)^{-1}
+    \\frac{m^*_k}{m}=\\frac{1}{Z_k} \\cdot \\left(1+\\frac{m}{k}\\frac{\\partial Re\\Sigma(k, 0)}{\\partial k}\\right)^{-1}
 ```
 """
 function massratio(
@@ -219,7 +262,7 @@ function massratio(
     sigma2 = real(Σ[w0_label, k2] + Σ_ins[1, k2])
     ds_dk = (sigma1 - sigma2) / (kgrid[k1] - kgrid[k2])
 
-    return 1.0 / z / (1 + me / kamp * ds_dk), kamp
+    return 1.0 / z / (1 + (me / kamp) * ds_dk), kamp
 end
 
 function get_lqsgw_properties(

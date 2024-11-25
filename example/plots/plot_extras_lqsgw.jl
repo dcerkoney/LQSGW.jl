@@ -173,7 +173,8 @@ function load_data(
     param::Parameter.Para,
     int_type=:rpa,
     max_steps=300;
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
     n_max = -1
@@ -204,7 +205,8 @@ function load_data(
     key,
     param::Parameter.Para,
     int_type=:rpa;
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
     filename = joinpath(savedir, savename)
@@ -221,7 +223,8 @@ function load_oneshot_data(
     param::Parameter.Para,
     int_type=:rpa,
     δK=5e-6;
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
     # Oneshot approach: G0 -> Π0 -> W0 -> Σ1 = Σ_G0W0
@@ -257,7 +260,8 @@ function load_lqsgw_data(
     int_type=:rpa,
     δK=5e-6,
     max_steps=300;
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
     # Converged LQSGW: G_i -> Π_i -> W_i -> Σ_(i+1) = Σ_LQSGW
@@ -291,7 +295,8 @@ end
 function load_lqsgw_data_new_format(
     param::Parameter.Para,
     int_type,
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
 )
     local data
@@ -320,7 +325,8 @@ end
 function load_oneshot_data_new_format(
     param::Parameter.Para,
     int_type,
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
 )
     filename = joinpath(savedir, savename)
@@ -1037,13 +1043,235 @@ function main()
     ax.set_xlabel("\$k / k_F\$")
     ax.set_ylabel("\$\\mathcal{E}_\\text{qp}(k)\$")
     # ax.set_ylabel("\$Z^{-1}_k \\cdot \\mathcal{E}_\\text{qp}(k)\$")
-    ax.legend(; fontsize=12)
-    # ax.legend(; fontsize=12, ncol=3)
+    ax.legend(; fontsize=12, ncol=1)
     plt.tight_layout()
     fig.savefig("quasiparticle_energy_rs=$(round(rs; sigdigits=4))_$(fsstr).pdf")
     # fig.savefig("quasiparticle_energy_rs=$(round(rs; sigdigits=4))_$(fsstr)_full.pdf")
     # fig.savefig("quasiparticle_energy_times_Zinv_rs=$(round(rs; sigdigits=4))_$(fsstr).pdf")
     # fig.savefig("quasiparticle_energy_times_Zinv_rs=$(round(rs; sigdigits=4))_$(fsstr)_full.pdf")
+
+    #################################################
+    # Plot first derivative of quasiparticle energy #
+    #################################################
+
+    fig, ax = plt.subplots(; figsize=(5, 5))
+
+    kgrid_plot = collect(range(0; stop=3, length=100))
+    dk_plot = kgrid_plot[2] - kgrid_plot[1]
+
+    # NOTE: weird bug when interpolating RPA kSgrids: bound is [minK, maxK] not [0, 2kF]!
+    # WORKAROUND: use lqsgw grids for interpolation, which are the same up to the correct bound
+    E_k_rpa_interp = Interp.interp1DGrid(data_rpa.E_k, kSgrid_lqsgw, kgrid_plot)
+    E_k_rpa_fp_interp = Interp.interp1DGrid(data_rpa_fp.E_k, kSgrid_lqsgw_fp, kgrid_plot)
+    E_k_rpa_fp_fm_interp =
+        Interp.interp1DGrid(data_rpa_fp_fm.E_k, kSgrid_lqsgw_fp_fm, kgrid_plot)
+
+    E_k_lqsgw_interp = Interp.interp1DGrid(data_lqsgw.E_k, kSgrid_lqsgw, kgrid_plot)
+    E_k_lqsgw_fp_interp =
+        Interp.interp1DGrid(data_lqsgw_fp.E_k, kSgrid_lqsgw_fp, kgrid_plot)
+    E_k_lqsgw_fp_fm_interp =
+        Interp.interp1DGrid(data_lqsgw_fp_fm.E_k, kSgrid_lqsgw_fp_fm, kgrid_plot)
+
+    # ∂ₖE_k from central difference
+    kplot_cd = kgrid_plot[2:(end - 1)]
+    mdE_dk_rpa_cd = param.me * (E_k_rpa_interp[3:end] - E_k_rpa_interp[1:(end - 2)]) / (2 * dk_plot)
+    mdE_dk_rpa_fp_cd =
+        param.me * (E_k_rpa_fp_interp[3:end] - E_k_rpa_fp_interp[1:(end - 2)]) / (2 * dk_plot)
+    mdE_dk_rpa_fp_fm_cd =
+        param.me * (E_k_rpa_fp_fm_interp[3:end] - E_k_rpa_fp_fm_interp[1:(end - 2)]) / (2 * dk_plot)
+    mdE_dk_lqsgw_cd =
+        param.me * (E_k_lqsgw_interp[3:end] - E_k_lqsgw_interp[1:(end - 2)]) / (2 * dk_plot)
+    mdE_dk_lqsgw_fp_cd =
+        param.me * (E_k_lqsgw_fp_interp[3:end] - E_k_lqsgw_fp_interp[1:(end - 2)]) / (2 * dk_plot)
+    mdE_dk_lqsgw_fp_fm_cd =
+        param.me * (E_k_lqsgw_fp_fm_interp[3:end] - E_k_lqsgw_fp_fm_interp[1:(end - 2)]) /
+        (2 * dk_plot)
+
+    # Bare energy derivative
+    mdE_dk_0 = kplot_cd
+
+    plot_spline(
+        kplot_cd / kF,
+        mdE_dk_0,
+        8,
+        "Bare",
+        ax;
+        ls="--",
+        zorder=100,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd / kF,
+        mdE_dk_rpa_cd,
+        1,
+        "\$G_0 W_0\$",
+        ax;
+        ls="--",
+        zorder=1,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd / kF,
+        mdE_dk_rpa_fp_cd,
+        2,
+        "\$G_0 W^\\text{KO}_{0,+}\$",
+        ax;
+        ls="--",
+        zorder=3,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd / kF,
+        mdE_dk_rpa_fp_fm_cd,
+        3,
+        "\$G_0 W^\\text{KO}_0\$",
+        ax;
+        ls="--",
+        zorder=5,
+        extrapolate=true,
+    )
+    plot_spline(kplot_cd / kF, mdE_dk_lqsgw_cd, 4, "LQSGW", ax; zorder=2, extrapolate=true)
+    plot_spline(
+        kplot_cd / kF,
+        mdE_dk_lqsgw_fp_cd,
+        5,
+        "LQSGW\$^\\text{KO}_+\$",
+        ax;
+        zorder=4,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd / kF,
+        mdE_dk_lqsgw_fp_fm_cd,
+        6,
+        "LQSGW\$^\\text{KO}\$",
+        ax;
+        zorder=6,
+        extrapolate=true,
+    )
+
+    if constant_fs
+        ax.set_title("Constant \$F^\\pm(q)\$"; pad=10, fontsize=16)
+    else
+        ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
+    end
+    # ax.set_xlim(0, 6)
+    ax.set_xlim(0, 2)
+    ax.set_ylim(-0.05, 1.05)
+    ax.set_xlabel("\$k / k_F\$")
+    ax.set_ylabel("\$m\\partial_k\\mathcal{E}_\\text{qp}(k)\$")
+    # ax.set_ylabel("\$Z^{-1}_k \\cdot \\mathcal{E}_\\text{qp}(k)\$")
+    ax.legend(; fontsize=12, ncol=1)
+    plt.tight_layout()
+    fig.savefig("dk_quasiparticle_energy_rs=$(round(rs; sigdigits=4))_$(fsstr).pdf")
+
+    ##################################################
+    # Plot second derivative of quasiparticle energy #
+    ##################################################
+
+    fig, ax = plt.subplots(; figsize=(5, 5))
+
+    # m * ∂ₖ∂ₖE_k from central difference
+    kplot_cd2 = kplot_cd[2:(end - 1)]
+    dk_plot2 = kplot_cd[2] - kplot_cd[1]
+    md2E_dk2_rpa_cd =(mdE_dk_rpa_cd[3:end] - mdE_dk_rpa_cd[1:(end - 2)]) / (2 * dk_plot2)
+    md2E_dk2_rpa_fp_cd =
+       (mdE_dk_rpa_fp_cd[3:end] - mdE_dk_rpa_fp_cd[1:(end - 2)]) / (2 * dk_plot2)
+    md2E_dk2_rpa_fp_fm_cd =
+       (mdE_dk_rpa_fp_fm_cd[3:end] - mdE_dk_rpa_fp_fm_cd[1:(end - 2)]) / (2 * dk_plot2)
+    md2E_dk2_lqsgw_cd =
+       (mdE_dk_lqsgw_cd[3:end] - mdE_dk_lqsgw_cd[1:(end - 2)]) / (2 * dk_plot2)
+    md2E_dk2_lqsgw_fp_cd =
+       (mdE_dk_lqsgw_fp_cd[3:end] - mdE_dk_lqsgw_fp_cd[1:(end - 2)]) / (2 * dk_plot2)
+    md2E_dk2_lqsgw_fp_fm_cd =
+       (mdE_dk_lqsgw_fp_fm_cd[3:end] - mdE_dk_lqsgw_fp_fm_cd[1:(end - 2)]) / (2 * dk_plot2)
+
+    # Bare energy second derivative
+    md2E_dk2_0 = ones(length(kplot_cd2))
+
+    plot_spline(
+        kplot_cd2 / kF,
+        md2E_dk2_0,
+        8,
+        "Bare",
+        ax;
+        ls="--",
+        zorder=100,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd2 / kF,
+        md2E_dk2_rpa_cd,
+        1,
+        "\$G_0 W_0\$",
+        ax;
+        ls="--",
+        zorder=1,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd2 / kF,
+        md2E_dk2_rpa_fp_cd,
+        2,
+        "\$G_0 W^\\text{KO}_{0,+}\$",
+        ax;
+        ls="--",
+        zorder=3,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd2 / kF,
+        md2E_dk2_rpa_fp_fm_cd,
+        3,
+        "\$G_0 W^\\text{KO}_0\$",
+        ax;
+        ls="--",
+        zorder=5,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd2 / kF,
+        md2E_dk2_lqsgw_cd,
+        4,
+        "LQSGW",
+        ax;
+        zorder=2,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd2 / kF,
+        md2E_dk2_lqsgw_fp_cd,
+        5,
+        "LQSGW\$^\\text{KO}_+\$",
+        ax;
+        zorder=4,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd2 / kF,
+        md2E_dk2_lqsgw_fp_fm_cd,
+        6,
+        "LQSGW\$^\\text{KO}\$",
+        ax;
+        zorder=6,
+        extrapolate=true,
+    )
+
+    if constant_fs
+        ax.set_title("Constant \$F^\\pm(q)\$"; pad=10, fontsize=16)
+    else
+        ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
+    end
+    # ax.set_xlim(0, 6)
+    ax.set_xlim(0, 2)
+    ax.set_ylim(0.76, 1.54)
+    # ax.set_ylim(ylims)
+    ax.set_xlabel("\$k / k_F\$")
+    ax.set_ylabel("\$m\\partial^2_k\\mathcal{E}_\\text{qp}(k)\$")
+    # ax.set_ylabel("\$Z^{-1}_k \\cdot \\mathcal{E}_\\text{qp}(k)\$")
+    ax.legend(; fontsize=12, ncol=1, loc="upper left")
+    plt.tight_layout()
+    fig.savefig("dk2_quasiparticle_energy_rs=$(round(rs; sigdigits=4))_$(fsstr).pdf")
 
     ###########################################################
     # Plot difference between full dispersion and bare energy #
