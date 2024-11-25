@@ -1074,15 +1074,19 @@ function main()
 
     # ∂ₖE_k from central difference
     kplot_cd = kgrid_plot[2:(end - 1)]
-    mdE_dk_rpa_cd = param.me * (E_k_rpa_interp[3:end] - E_k_rpa_interp[1:(end - 2)]) / (2 * dk_plot)
+    mdE_dk_rpa_cd =
+        param.me * (E_k_rpa_interp[3:end] - E_k_rpa_interp[1:(end - 2)]) / (2 * dk_plot)
     mdE_dk_rpa_fp_cd =
-        param.me * (E_k_rpa_fp_interp[3:end] - E_k_rpa_fp_interp[1:(end - 2)]) / (2 * dk_plot)
+        param.me * (E_k_rpa_fp_interp[3:end] - E_k_rpa_fp_interp[1:(end - 2)]) /
+        (2 * dk_plot)
     mdE_dk_rpa_fp_fm_cd =
-        param.me * (E_k_rpa_fp_fm_interp[3:end] - E_k_rpa_fp_fm_interp[1:(end - 2)]) / (2 * dk_plot)
+        param.me * (E_k_rpa_fp_fm_interp[3:end] - E_k_rpa_fp_fm_interp[1:(end - 2)]) /
+        (2 * dk_plot)
     mdE_dk_lqsgw_cd =
         param.me * (E_k_lqsgw_interp[3:end] - E_k_lqsgw_interp[1:(end - 2)]) / (2 * dk_plot)
     mdE_dk_lqsgw_fp_cd =
-        param.me * (E_k_lqsgw_fp_interp[3:end] - E_k_lqsgw_fp_interp[1:(end - 2)]) / (2 * dk_plot)
+        param.me * (E_k_lqsgw_fp_interp[3:end] - E_k_lqsgw_fp_interp[1:(end - 2)]) /
+        (2 * dk_plot)
     mdE_dk_lqsgw_fp_fm_cd =
         param.me * (E_k_lqsgw_fp_fm_interp[3:end] - E_k_lqsgw_fp_fm_interp[1:(end - 2)]) /
         (2 * dk_plot)
@@ -1092,7 +1096,7 @@ function main()
 
     plot_spline(
         kplot_cd / kF,
-        mdE_dk_0,
+        mdE_dk_0 / kF,
         8,
         "Bare",
         ax;
@@ -1102,7 +1106,7 @@ function main()
     )
     plot_spline(
         kplot_cd / kF,
-        mdE_dk_rpa_cd,
+        mdE_dk_rpa_cd / kF,
         1,
         "\$G_0 W_0\$",
         ax;
@@ -1112,7 +1116,7 @@ function main()
     )
     plot_spline(
         kplot_cd / kF,
-        mdE_dk_rpa_fp_cd,
+        mdE_dk_rpa_fp_cd / kF,
         2,
         "\$G_0 W^\\text{KO}_{0,+}\$",
         ax;
@@ -1122,7 +1126,7 @@ function main()
     )
     plot_spline(
         kplot_cd / kF,
-        mdE_dk_rpa_fp_fm_cd,
+        mdE_dk_rpa_fp_fm_cd / kF,
         3,
         "\$G_0 W^\\text{KO}_0\$",
         ax;
@@ -1130,10 +1134,18 @@ function main()
         zorder=5,
         extrapolate=true,
     )
-    plot_spline(kplot_cd / kF, mdE_dk_lqsgw_cd, 4, "LQSGW", ax; zorder=2, extrapolate=true)
     plot_spline(
         kplot_cd / kF,
-        mdE_dk_lqsgw_fp_cd,
+        mdE_dk_lqsgw_cd / kF,
+        4,
+        "LQSGW",
+        ax;
+        zorder=2,
+        extrapolate=true,
+    )
+    plot_spline(
+        kplot_cd / kF,
+        mdE_dk_lqsgw_fp_cd / kF,
         5,
         "LQSGW\$^\\text{KO}_+\$",
         ax;
@@ -1142,7 +1154,7 @@ function main()
     )
     plot_spline(
         kplot_cd / kF,
-        mdE_dk_lqsgw_fp_fm_cd,
+        mdE_dk_lqsgw_fp_fm_cd / kF,
         6,
         "LQSGW\$^\\text{KO}\$",
         ax;
@@ -1157,9 +1169,9 @@ function main()
     end
     # ax.set_xlim(0, 6)
     ax.set_xlim(0, 2)
-    ax.set_ylim(-0.05, 1.05)
+    ax.set_ylim(-0.1, 2.6)
     ax.set_xlabel("\$k / k_F\$")
-    ax.set_ylabel("\$m\\partial_k\\mathcal{E}_\\text{qp}(k)\$")
+    ax.set_ylabel("\$\\frac{m}{k_F}\\partial_k\\mathcal{E}_\\text{qp}(k)\$")
     # ax.set_ylabel("\$Z^{-1}_k \\cdot \\mathcal{E}_\\text{qp}(k)\$")
     ax.legend(; fontsize=12, ncol=1)
     plt.tight_layout()
@@ -1174,17 +1186,17 @@ function main()
     # m * ∂ₖ∂ₖE_k from central difference
     kplot_cd2 = kplot_cd[2:(end - 1)]
     dk_plot2 = kplot_cd[2] - kplot_cd[1]
-    md2E_dk2_rpa_cd =(mdE_dk_rpa_cd[3:end] - mdE_dk_rpa_cd[1:(end - 2)]) / (2 * dk_plot2)
+    md2E_dk2_rpa_cd = (mdE_dk_rpa_cd[3:end] - mdE_dk_rpa_cd[1:(end - 2)]) / (2 * dk_plot2)
     md2E_dk2_rpa_fp_cd =
-       (mdE_dk_rpa_fp_cd[3:end] - mdE_dk_rpa_fp_cd[1:(end - 2)]) / (2 * dk_plot2)
+        (mdE_dk_rpa_fp_cd[3:end] - mdE_dk_rpa_fp_cd[1:(end - 2)]) / (2 * dk_plot2)
     md2E_dk2_rpa_fp_fm_cd =
-       (mdE_dk_rpa_fp_fm_cd[3:end] - mdE_dk_rpa_fp_fm_cd[1:(end - 2)]) / (2 * dk_plot2)
+        (mdE_dk_rpa_fp_fm_cd[3:end] - mdE_dk_rpa_fp_fm_cd[1:(end - 2)]) / (2 * dk_plot2)
     md2E_dk2_lqsgw_cd =
-       (mdE_dk_lqsgw_cd[3:end] - mdE_dk_lqsgw_cd[1:(end - 2)]) / (2 * dk_plot2)
+        (mdE_dk_lqsgw_cd[3:end] - mdE_dk_lqsgw_cd[1:(end - 2)]) / (2 * dk_plot2)
     md2E_dk2_lqsgw_fp_cd =
-       (mdE_dk_lqsgw_fp_cd[3:end] - mdE_dk_lqsgw_fp_cd[1:(end - 2)]) / (2 * dk_plot2)
+        (mdE_dk_lqsgw_fp_cd[3:end] - mdE_dk_lqsgw_fp_cd[1:(end - 2)]) / (2 * dk_plot2)
     md2E_dk2_lqsgw_fp_fm_cd =
-       (mdE_dk_lqsgw_fp_fm_cd[3:end] - mdE_dk_lqsgw_fp_fm_cd[1:(end - 2)]) / (2 * dk_plot2)
+        (mdE_dk_lqsgw_fp_fm_cd[3:end] - mdE_dk_lqsgw_fp_fm_cd[1:(end - 2)]) / (2 * dk_plot2)
 
     # Bare energy second derivative
     md2E_dk2_0 = ones(length(kplot_cd2))
