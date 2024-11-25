@@ -7,7 +7,7 @@ function G_0(param::Parameter.Para, fdlr, kGgrid)
     green = GreenFunc.MeshArray(wnmesh, kGgrid; dtype=ComplexF64)
     for ind in eachindex(green)
         iw, ik = ind[1], ind[2]
-        green[ind] = 1 / (im * wnmesh[iw] - (kGgrid[ik]^2 / (2 * me) - μ))
+        green[ind] = 1.0 / (im * wnmesh[iw] - (kGgrid[ik]^2 / (2 * me) - μ))
     end
     return green
 end
@@ -29,15 +29,15 @@ function G_qp(
     # Interpolate the quasiparticle energy and Z-factor along the Green's
     # function momentum mesh, masking values where k is larger than the
     # largest k in the self-energy mesh
-    Z_k = Vector{Float64}(undef, length(kGgrid))
+    # Z_k = Vector{Float64}(undef, length(kGgrid))
     E_qp_k = Vector{Float64}(undef, length(kGgrid))
     for (i, k) in enumerate(kGgrid)
         # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
         if k > maximum(Σ.mesh[2])
-            Z_k[i] = 1.0
+            # Z_k[i] = 1.0
             E_qp_k[i] = k^2 / (2 * me) - (μ + δμ)
         else
-            Z_k[i] = Interp.interp1D(Z_kSgrid, Σ.mesh[2], k)
+            # Z_k[i] = Interp.interp1D(Z_kSgrid, Σ.mesh[2], k)
             E_qp_k[i] = Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k)
         end
     end
@@ -46,7 +46,8 @@ function G_qp(
     green = GreenFunc.MeshArray(wnmesh, kGgrid; dtype=ComplexF64)  # G_qp(x, n)
     for ind in eachindex(green)
         iw, ik = ind[1], ind[2]
-        green[ind] = Z_k[ik] / (im * wnmesh[iw] - E_qp_k[ik])
+        # green[ind] = Z_k[ik] / (im * wnmesh[iw] - E_qp_k[ik])
+        green[ind] = 1.0 / (im * wnmesh[iw] - E_qp_k[ik])
     end
     return green
 end
@@ -66,15 +67,15 @@ function G_qp(
     # Interpolate the quasiparticle energy and Z-factor along the Green's
     # function momentum mesh, masking values where k is larger than the
     # largest k in the self-energy mesh
-    Z_k = Vector{Float64}(undef, length(kGgrid))
+    # Z_k = Vector{Float64}(undef, length(kGgrid))
     E_qp_k = Vector{Float64}(undef, length(kGgrid))
     for (i, k) in enumerate(kGgrid)
         # G_qp → G0(μ + δμ) as k → ∞ (use hard cutoff at largest k in Σ)
         if k > maximum(Σ.mesh[2])
-            Z_k[i] = 1.0
+            # Z_k[i] = 1.0
             E_qp_k[i] = k^2 / (2 * me) - (μ + δμ)
         else
-            Z_k[i] = Interp.interp1D(Z_kSgrid, Σ.mesh[2], k)
+            # Z_k[i] = Interp.interp1D(Z_kSgrid, Σ.mesh[2], k)
             E_qp_k[i] = Interp.interp1D(E_qp_kSgrid, Σ.mesh[2], k)
         end
     end
@@ -83,7 +84,8 @@ function G_qp(
     green = GreenFunc.MeshArray(wnmesh, kGgrid; dtype=ComplexF64)
     for ind in eachindex(green)
         iw, ik = ind[1], ind[2]
-        green[ind] = Z_k[ik] / (im * wnmesh[iw] - E_qp_k[ik])
+        # green[ind] = Z_k[ik] / (im * wnmesh[iw] - E_qp_k[ik])
+        green[ind] = 1.0 / (im * wnmesh[iw] - E_qp_k[ik])
     end
     return green
 end
