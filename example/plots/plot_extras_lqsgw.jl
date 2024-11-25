@@ -173,7 +173,7 @@ function load_data(
     param::Parameter.Para,
     int_type=:rpa,
     max_steps=300;
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
@@ -205,7 +205,7 @@ function load_data(
     key,
     param::Parameter.Para,
     int_type=:rpa;
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
@@ -223,7 +223,7 @@ function load_oneshot_data(
     param::Parameter.Para,
     int_type=:rpa,
     δK=5e-6;
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
@@ -260,7 +260,7 @@ function load_lqsgw_data(
     int_type=:rpa,
     δK=5e-6,
     max_steps=300;
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2",
 )
@@ -295,7 +295,7 @@ end
 function load_lqsgw_data_new_format(
     param::Parameter.Para,
     int_type,
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
 )
@@ -325,7 +325,7 @@ end
 function load_oneshot_data_new_format(
     param::Parameter.Para,
     int_type,
-    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d_buggy/$(int_type)",
+    savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     # savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
     savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
 )
@@ -827,7 +827,7 @@ function main()
 
     fig, ax = plt.subplots(; figsize=(5, 5))
 
-    kgrid_plot = collect(range(0; stop=4, length=100))
+    kgrid_plot = collect(range(0; stop=4, length=200))
     dk_plot = kgrid_plot[2] - kgrid_plot[1]
 
     # NOTE: weird bug when interpolating RPA kSgrids: bound is [minK, maxK] not [0, 2kF]!
@@ -923,8 +923,8 @@ function main()
         extrapolate=true,
     )
     plot_spline(
-        kplot_cd / kF,
-        D_k_lqsgw_fp_fm,
+        kplot_cd[2:end] / kF,
+        D_k_lqsgw_fp_fm[2:end],
         6,
         "LQSGW\$^\\text{KO}\$",
         ax;
@@ -1056,7 +1056,7 @@ function main()
 
     fig, ax = plt.subplots(; figsize=(5, 5))
 
-    kgrid_plot = collect(range(0; stop=3, length=100))
+    kgrid_plot = collect(range(0; stop=3, length=90))
     dk_plot = kgrid_plot[2] - kgrid_plot[1]
 
     # NOTE: weird bug when interpolating RPA kSgrids: bound is [minK, maxK] not [0, 2kF]!
@@ -1276,7 +1276,7 @@ function main()
     end
     # ax.set_xlim(0, 6)
     ax.set_xlim(0, 2)
-    ax.set_ylim(0.76, 1.54)
+    ax.set_ylim(0.75, 1.7)
     # ax.set_ylim(ylims)
     ax.set_xlabel("\$k / k_F\$")
     ax.set_ylabel("\$m\\partial^2_k\\mathcal{E}_\\text{qp}(k)\$")

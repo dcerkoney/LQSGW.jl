@@ -161,7 +161,8 @@ function load_lqsgw_data_new_format(
     param::Parameter.Para,
     int_type,
     savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="lqsgw_$(param.dim)d_$(int_type)_final.jld2";
+    savename="lqsgw_$(param.dim)d_$(int_type).jld2";
+    # savename="lqsgw_$(param.dim)d_$(int_type)_final.jld2";
     # savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
 )
     local data
@@ -186,7 +187,8 @@ function load_oneshot_data_new_format(
     param::Parameter.Para,
     int_type,
     savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="oneshot_gw_$(param.dim)d_$(int_type)_final.jld2";
+    savename="oneshot_gw_$(param.dim)d_$(int_type).jld2";
+    # savename="oneshot_gw_$(param.dim)d_$(int_type)_final.jld2";
     # savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
 )
     local data
@@ -541,8 +543,8 @@ function main()
     # rslist = collect(range(1, 10; step=0.5))
     beta = 40.0
     dim = 3
-    # constant_fs = true
-    constant_fs = false
+    constant_fs = true
+    # constant_fs = false
  
     # plot_landaufunc(beta, collect(sort!(unique!([1; LinRange(0.01, 5, 2001)]))); dir="")
     # plot_landaufunc(beta, [1]; dir="")
@@ -572,13 +574,13 @@ function main()
     dlist_os_fp_fm = []
     mefflist_g0w0 = []
     mefflist_fp = []
-    mefflist_fp_fm = []
+    # mefflist_fp_fm = []
     zlist_g0w0 = []
     zlist_fp = []
-    zlist_fp_fm = []
+    # zlist_fp_fm = []
     dlist_g0w0 = []
     dlist_fp = []
-    dlist_fp_fm = []
+    # dlist_fp_fm = []
     for rs in rslist
         param = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         @unpack kF, EF, β = param
@@ -599,24 +601,24 @@ function main()
         # Load LQSGW data
         meff_g0w0, z_g0w0, d_g0w0 = load_lqsgw_data_new_format(param, :rpa)
         meff_fp, z_fp, d_fp = load_lqsgw_data_new_format(param, int_type_fp)
-        if constant_fs || rs < 8.0
-            meff_fp_fm, z_fp_fm, d_fp_fm = load_lqsgw_data_new_format(param, int_type_fp_fm)
-        end
+        # if constant_fs || rs < 8.0
+        #     meff_fp_fm, z_fp_fm, d_fp_fm = load_lqsgw_data_new_format(param, int_type_fp_fm)
+        # end
         push!(mefflist_g0w0, meff_g0w0)
         push!(mefflist_fp, meff_fp)
-        if constant_fs || rs < 8.0
-            push!(mefflist_fp_fm, meff_fp_fm)
-        end
+        # if constant_fs || rs < 8.0
+        #     push!(mefflist_fp_fm, meff_fp_fm)
+        # end
         push!(zlist_g0w0, z_g0w0)
         push!(zlist_fp, z_fp)
-        if constant_fs || rs < 8.0
-            push!(zlist_fp_fm, z_fp_fm)
-        end
+        # if constant_fs || rs < 8.0
+        #     push!(zlist_fp_fm, z_fp_fm)
+        # end
         push!(dlist_g0w0, d_g0w0)
         push!(dlist_fp, d_fp)
-        if constant_fs || rs < 8.0
-            push!(dlist_fp_fm, d_fp_fm)
-        end
+        # if constant_fs || rs < 8.0
+        #     push!(dlist_fp_fm, d_fp_fm)
+        # end
     end
     pushfirst!(rslist, 0.0)
     pushfirst!(mefflist_os_g0w0, 1.0)
@@ -624,19 +626,19 @@ function main()
     pushfirst!(mefflist_os_fp_fm, 1.0)
     pushfirst!(mefflist_g0w0, 1.0)
     pushfirst!(mefflist_fp, 1.0)
-    pushfirst!(mefflist_fp_fm, 1.0)
+    # pushfirst!(mefflist_fp_fm, 1.0)
     pushfirst!(zlist_os_g0w0, 1.0)
     pushfirst!(zlist_os_fp, 1.0)
     pushfirst!(zlist_os_fp_fm, 1.0)
     pushfirst!(zlist_g0w0, 1.0)
     pushfirst!(zlist_fp, 1.0)
-    pushfirst!(zlist_fp_fm, 1.0)
+    # pushfirst!(zlist_fp_fm, 1.0)
     pushfirst!(dlist_os_g0w0, 1.0)
     pushfirst!(dlist_os_fp, 1.0)
     pushfirst!(dlist_os_fp_fm, 1.0)
     pushfirst!(dlist_g0w0, 1.0)
     pushfirst!(dlist_fp, 1.0)
-    pushfirst!(dlist_fp_fm, 1.0)
+    # pushfirst!(dlist_fp_fm, 1.0)
 
     rs_FlapwMBPT = [1, 2, 3, 4, 5]
     m_FlapwMBPT =
@@ -648,6 +650,7 @@ function main()
         0.6381168758423326,
         0.5894455967871706,
     ]
+    d_FlapwMBPT = [1 / (m * z) for (m, z) in zip(m_FlapwMBPT, z_FlapwMBPT[2:end])]
 
     rs_VDMC = [0, 0.5, 1, 2, 3, 4, 5, 6]
     z_VDMC = [1.0, 0.95358, 0.94705, 0.93015, 0.90854, 0.92296, 0.91668, 0.89664]
@@ -718,18 +721,6 @@ function main()
     # Plot m*/m convergence
     fig, ax = plt.subplots(; figsize=(5, 5))
 
-    # # Digitized data from Kutepov 3DUEG FlapwMBPT paper
-    # ax.scatter(
-    #     rs_FlapwMBPT[2:end],
-    #     m_FlapwMBPT,
-    #     15;
-    #     marker="s",
-    #     label="FlapwMBPT",
-    #     # label="FlapwMBPT$(reflabels[1])",
-    #     color=colors[1],
-    #     zorder=100,
-    # )
-
     if constant_fs
         rslists = [rslist, rslist, rslist]
     else
@@ -779,29 +770,29 @@ function main()
     )
     # ax.scatter(rslist, mefflist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
-    if constant_fs
-        rs_cut = rslist
-    else
-        rs_cut = rslist[rslist .< 8.0]
-    end
-    plot_mvsrs(
-        rs_cut,
-        mefflist_fp_fm,
-        7,
-        "LQSGW\$^\\text{KO}\$",
-        ax;
-        ls="-",
-        rs_HDL=rs_HDL,
-        meff_HDL=meff_HDL,
-        zorder=30,
-    )
-    if constant_fs == false
-        ax.scatter([7.5], [mefflist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
-    end
-    # ax.scatter(rslist, mefflist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
-    # ax.plot(rslist, mefflist_g0w0, "o-"; label="LQSGW", color=color[2])
-    # ax.plot(rslist, mefflist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
-    # ax.plot(rslist, mefflist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
+    # if constant_fs
+    #     rs_cut = rslist
+    # else
+    #     rs_cut = rslist[rslist .< 8.0]
+    # end
+    # plot_mvsrs(
+    #     rs_cut,
+    #     mefflist_fp_fm,
+    #     7,
+    #     "LQSGW\$^\\text{KO}\$",
+    #     ax;
+    #     ls="-",
+    #     rs_HDL=rs_HDL,
+    #     meff_HDL=meff_HDL,
+    #     zorder=30,
+    # )
+    # if constant_fs == false
+    #     ax.scatter([7.5], [mefflist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
+    # end
+    # # ax.scatter(rslist, mefflist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
+    # # ax.plot(rslist, mefflist_g0w0, "o-"; label="LQSGW", color=color[2])
+    # # ax.plot(rslist, mefflist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
+    # # ax.plot(rslist, mefflist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
 
     # VMC results
     errorbar_mvsrs(
@@ -838,6 +829,18 @@ function main()
     #     meff_HDL=meff_HDL,
     # )
 
+    # Digitized data from Kutepov 3DUEG FlapwMBPT paper
+    ax.scatter(
+        rs_FlapwMBPT[2:end],
+        m_FlapwMBPT,
+        15;
+        marker="s",
+        label="FlapwMBPT",
+        # label="FlapwMBPT$(reflabels[1])",
+        color=colors[7],
+        zorder=100,
+    )
+
     if constant_fs
         ax.set_title(
             "Constant \$F_\\pm\$";
@@ -848,7 +851,7 @@ function main()
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
     end
-    ax.set_ylim(0.91, 1.43)
+    ax.set_ylim(0.91, 1.23)
     ax.set_xticks(0:2:10)
     ax.set_xlabel("\$r_s\$")
     ax.set_ylabel("\$m^* / m\$")
@@ -858,17 +861,6 @@ function main()
 
     # Plot Z convergence
     fig, ax = plt.subplots(; figsize=(5, 5))
-
-    # # Digitized data from Kutepov 3DUEG LQSGW paper
-    # ax.scatter(
-    #     rs_FlapwMBPT,
-    #     z_FlapwMBPT,
-    #     15;
-    #     marker="s",
-    #     label="FlapwMBPT",
-    #     color=colors[1],
-    #     zorder=100,
-    # )
 
     indices = [2, 3, 4]
     z_oneshot = [zlist_os_g0w0, zlist_os_fp, zlist_os_fp_fm]
@@ -885,28 +877,28 @@ function main()
     plot_mvsrs(rslist, zlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
     # ax.scatter(rslist, zlist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
-    if constant_fs
-        rs_cut = rslist
-    else
-        rs_cut = rslist[rslist .< 8.0]
-    end
-    plot_mvsrs(
-        rs_cut,
-        zlist_fp_fm,
-        7,
-        "LQSGW\$^\\text{KO}\$",
-        ax;
-        ls="-",
-        # rs_HDL=rs_HDL,
-        # meff_HDL=meff_HDL,
-        zorder=30,
-    )
-    if constant_fs == false
-        ax.scatter([7.5], [zlist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
-    end
-    # ax.scatter(rslist, zlist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
-    # ax.plot(rslist, zlist_g0w0, "o-"; label="LQSGW", color=color[2])
-    # ax.plot(rslist, zlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
+    # if constant_fs
+    #     rs_cut = rslist
+    # else
+    #     rs_cut = rslist[rslist .< 8.0]
+    # end
+    # plot_mvsrs(
+    #     rs_cut,
+    #     zlist_fp_fm,
+    #     7,
+    #     "LQSGW\$^\\text{KO}\$",
+    #     ax;
+    #     ls="-",
+    #     # rs_HDL=rs_HDL,
+    #     # meff_HDL=meff_HDL,
+    #     zorder=30,
+    # )
+    # if constant_fs == false
+    #     ax.scatter([7.5], [zlist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
+    # end
+    # # ax.scatter(rslist, zlist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
+    # # ax.plot(rslist, zlist_g0w0, "o-"; label="LQSGW", color=color[2])
+    # # ax.plot(rslist, zlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
 
     # VMC results
     errorbar_mvsrs(
@@ -933,6 +925,17 @@ function main()
     # # plot_mvsrs(rs_VDMC[2:end], z_VDMC[2:end], 8, "", ax; ls="-", zorder=1000)
 
     # ax.plot(rslist, zlist_fp_fm, "o-"; label="\$G_0 W_\\text{KO}\$", color=color[5])
+
+    # Digitized data from Kutepov 3DUEG LQSGW paper
+    ax.scatter(
+        rs_FlapwMBPT,
+        z_FlapwMBPT,
+        15;
+        marker="s",
+        label="FlapwMBPT",
+        color=colors[7],
+        zorder=100,
+    )
 
     if constant_fs
         ax.set_title(
@@ -970,26 +973,26 @@ function main()
     plot_mvsrs(rslist, dlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
     # ax.scatter(rslist, dlist_fp, 20; color=colors[6], zorder=20, facecolors="none")
 
-    if constant_fs
-        rs_cut = rslist
-    else
-        rs_cut = rslist[rslist .< 8.0]
-    end
-    plot_mvsrs(
-        rs_cut,
-        dlist_fp_fm,
-        7,
-        "LQSGW\$^\\text{KO}\$",
-        ax;
-        ls="-",
-        zorder=30,
-    )
-    if constant_fs == false
-        ax.scatter([7.5], [dlist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
-    end
-    # ax.scatter(rslist, dlist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
-    # ax.plot(rslist, dlist_g0w0, "o-"; label="LQSGW", color=color[2])
-    # ax.plot(rslist, dlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
+    # if constant_fs
+    #     rs_cut = rslist
+    # else
+    #     rs_cut = rslist[rslist .< 8.0]
+    # end
+    # plot_mvsrs(
+    #     rs_cut,
+    #     dlist_fp_fm,
+    #     7,
+    #     "LQSGW\$^\\text{KO}\$",
+    #     ax;
+    #     ls="-",
+    #     zorder=30,
+    # )
+    # if constant_fs == false
+    #     ax.scatter([7.5], [dlist_fp_fm[end]], 20; color=colors[7], zorder=30, marker="o")
+    # end
+    # # ax.scatter(rslist, dlist_fp_fm, 20; color=colors[7], zorder=30, facecolors="none")
+    # # ax.plot(rslist, dlist_g0w0, "o-"; label="LQSGW", color=color[2])
+    # # ax.plot(rslist, dlist_fp, "o-"; label="\$G_0 W^+_\\text{KO}\$", color=color[4])
 
     # VMC results
     errorbar_mvsrs(
@@ -1000,6 +1003,17 @@ function main()
         "VMC",
         ax;
         zorder=500,
+    )
+
+    # Digitized data from Kutepov 3DUEG LQSGW paper
+    ax.scatter(
+        rs_FlapwMBPT[2:end],
+        d_FlapwMBPT,
+        15;
+        marker="s",
+        label="FlapwMBPT",
+        color=colors[7],
+        zorder=1000,
     )
 
     if constant_fs
