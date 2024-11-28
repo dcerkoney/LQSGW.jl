@@ -9,14 +9,36 @@ import LQSGW: println_root, DATA_DIR
 @pyimport numpy as np   # for saving/loading numpy data
 
 """
-Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via interpolation of the 
-compressibility ratio data of Perdew & Wang (1992) [Phys. Rev. B 45, 13244].
+Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via Corradini's fit
+to the DMC compressibility enhancement [doi: 10.1103/PhysRevB.57.14569].
+"""
+@inline function get_Fs_new(param::Parameter.Para)
+    kappa0_over_kappa = Interaction.compressibility_enhancement(param)
+    # NOTE: NEFT uses opposite sign convention for F!
+    # -F⁰ₛ = 1 - κ₀/κ
+    return 1.0 - kappa0_over_kappa
+end
+
+"""
+Get the antisymmetric l=0 Fermi-liquid parameter F⁰ₐ via  Corradini's fit
+to the DMC susceptibility enhancement [doi: 10.1103/PhysRevB.57.14569].
+"""
+@inline function get_Fa_new(param::Parameter.Para)
+    chi0_over_chi = Interaction.spin_susceptibility_enhancement(param)
+    # NOTE: NEFT uses opposite sign convention for F!
+    # -F⁰ₐ = 1 - χ₀/χ
+    return 1.0 - chi0_over_chi
+end
+
+"""
+Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via a fit to the DMC compressibility
+enhancement following Kukkonen & Chen (2021) [doi: 10.48550/arXiv.2101.10508].
 """
 @inline function get_Fs_PW(rs)
-    # if rs < 1.0 || rs > 5.0
-    #     @warn "The Perdew-Wang interpolation for Fs may " *
-    #           "be inaccurate outside the metallic regime!"
-    # end
+    if rs < 2.0 || rs > 5.0
+        @warn "The simple quadratic interpolation for Fs may " *
+              "be inaccurate outside the metallic regime rs = 2–5!"
+    end
     kappa0_over_kappa = 1.0025 - 0.1721rs - 0.0036rs^2
     # NOTE: NEFT uses opposite sign convention for F!
     # -F⁰ₛ = 1 - κ₀/κ
@@ -24,10 +46,14 @@ compressibility ratio data of Perdew & Wang (1992) [Phys. Rev. B 45, 13244].
 end
 
 """
-Get the antisymmetric l=0 Fermi-liquid parameter F⁰ₐ via interpolation of the 
-susceptibility ratio data (c.f. Kukkonen & Chen, 2021)
+Get the antisymmetric l=0 Fermi-liquid parameter F⁰ₐ via a fit to the DMC susceptibility
+enhancement following Kukkonen & Chen (2021) [doi: 10.48550/arXiv.2101.10508].
 """
 @inline function get_Fa_PW(rs)
+    if rs < 2.0 || rs > 5.0
+        @warn "The simple quadratic interpolation for Fa may " *
+              "be inaccurate outside the metallic regime rs = 2–5!"
+    end
     chi0_over_chi = 0.9821 - 0.1232rs + 0.0091rs^2
     # NOTE: NEFT uses opposite sign convention for F!
     # -F⁰ₐ = 1 - χ₀/χ
@@ -94,9 +120,12 @@ function main()
         # ElectronGas.jl defaults for G0W0 self-energy
         maxK = 6 * kF
         minK = 1e-6 * kF
-        # Get Fermi liquid parameter F⁰ₛ(rs) from Perdew-Wang fit
-        Fs = get_Fs_PW(rs)
-        Fa = get_Fa_PW(rs)
+        # Get Fermi liquid parameter F⁰ₛ(rs) from Corradini fits
+        Fs = get_Fs_new(param)
+        Fa = get_Fa_new(param)
+        # # Get Fermi liquid parameter F⁰ₛ(rs) from Kun & Kukkonen fits
+        # Fs = get_Fs_PW(rs)
+        # Fa = get_Fa_PW(rs)
         if param.rs > 0.25
             @assert Fs > 0 && Fa > 0 "Incorrect signs for Fs/Fa!"
         end
