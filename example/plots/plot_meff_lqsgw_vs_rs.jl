@@ -367,7 +367,8 @@ function plot_landaufunc(
         Fs_PW_q0_const, Fa_PW_q0_const =
             param.NF .* Interaction.landauParameterConst(1e-8, 0, param; Fs=Fs_PW, Fa=Fa_PW)
         Fs_new_q0_const, Fa_new_q0_const =
-            param.NF .* Interaction.landauParameterConst(1e-8, 0, param; Fs=Fs_new, Fa=Fa_new)
+            param.NF .*
+            Interaction.landauParameterConst(1e-8, 0, param; Fs=Fs_new, Fa=Fa_new)
         Fs_q0, Fa_q0 = param.NF .* Interaction.landauParameterSimionGiuliani(1e-8, 0, param)
         Fs_q0_v2, _ = param.NF .* Interaction.landauParameterMoroni(1e-8, 0, param)
         push!(Fs_const_PW_q0_rslist, Fs_PW_q0_const)
@@ -623,9 +624,11 @@ function main()
     constant_fs = true
     # constant_fs = false
 
-    plot_landaufunc(beta, collect(sort!(unique!([10; LinRange(0.01, 10, 2001)]))); dir="")
+    rs_cutoff_fp_fm = constant_fs ? 5.0 : 7.5
+
+    # plot_landaufunc(beta, collect(sort!(unique!([10; LinRange(0.01, 10, 2001)]))); dir="")
     # plot_landaufunc(beta, [1]; dir="")
-    return
+    # return
 
     if constant_fs
         fsstr = "fs_const"
@@ -678,22 +681,22 @@ function main()
         # Load LQSGW data
         meff_g0w0, z_g0w0, d_g0w0 = load_lqsgw_data_new_format(param, :rpa)
         meff_fp, z_fp, d_fp = load_lqsgw_data_new_format(param, int_type_fp)
-        if constant_fs || rs < 8.0
+        if rs ≤ rs_cutoff_fp_fm
             meff_fp_fm, z_fp_fm, d_fp_fm = load_lqsgw_data_new_format(param, int_type_fp_fm)
         end
         push!(mefflist_g0w0, meff_g0w0)
         push!(mefflist_fp, meff_fp)
-        if constant_fs || rs < 8.0
+        if rs ≤ rs_cutoff_fp_fm
             push!(mefflist_fp_fm, meff_fp_fm)
         end
         push!(zlist_g0w0, z_g0w0)
         push!(zlist_fp, z_fp)
-        if constant_fs || rs < 8.0
+        if rs ≤ rs_cutoff_fp_fm
             push!(zlist_fp_fm, z_fp_fm)
         end
         push!(dlist_g0w0, d_g0w0)
         push!(dlist_fp, d_fp)
-        if constant_fs || rs < 8.0
+        if rs ≤ rs_cutoff_fp_fm
             push!(dlist_fp_fm, d_fp_fm)
         end
     end
@@ -804,11 +807,7 @@ function main()
     # Plot m*/m convergence
     fig, ax = plt.subplots(; figsize=(5, 5))
 
-    if constant_fs
-        rslists = [rslist, rslist, rslist]
-    else
-        rslists = [rslist, rslist, rslist[rslist .< 8.0]]
-    end
+    rslists = [rslist, rslist, rslist[rslist .≤ rs_cutoff_fp_fm]]
     indices = [2, 3, 4]
     meff_oneshot = [mefflist_os_g0w0, mefflist_os_fp, mefflist_os_fp_fm]
     labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}\$", "\$G_0 W^\\text{KO}_0\$"]
@@ -859,11 +858,7 @@ function main()
     )
     # ax.scatter(rslist, mefflist_fp, 15; color=colors[6], zorder=20, facecolors="none")
 
-    if constant_fs
-        rs_cut = rslist
-    else
-        rs_cut = rslist[rslist .< 8.0]
-    end
+    rs_cut = rslist[rslist .≤ rs_cutoff_fp_fm]
     plot_mvsrs(
         rs_cut,
         mefflist_fp_fm,
@@ -875,7 +870,9 @@ function main()
         meff_HDL=meff_HDL,
         zorder=30,
     )
-    if constant_fs == false
+    if constant_fs
+        ax.scatter([5.0], [mefflist_fp_fm[end]], 30; color=colors[7], zorder=30, marker="x")
+    else
         ax.scatter([7.5], [mefflist_fp_fm[end]], 30; color=colors[7], zorder=30, marker="x")
     end
 
@@ -932,8 +929,8 @@ function main()
             pad=10,
             fontsize=16,
         )
-        ax.set_ylim(0.91, 1.41)
-        ax.axvline([6.769676967696769]; color=colors[7], ls="--", lw=1)
+        ax.set_ylim(0.91, 1.32)
+        # ax.axvline([6.769676967696769]; color=colors[7], ls="--", lw=1)
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
         ax.set_ylim(0.91, 1.21)
@@ -963,11 +960,7 @@ function main()
     plot_mvsrs(rslist, zlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
     # ax.scatter(rslist, zlist_fp, 15; color=colors[6], zorder=20, facecolors="none")
 
-    if constant_fs
-        rs_cut = rslist
-    else
-        rs_cut = rslist[rslist .< 8.0]
-    end
+    rs_cut = rslist[rslist .≤ rs_cutoff_fp_fm]
     plot_mvsrs(
         rs_cut,
         zlist_fp_fm,
@@ -979,7 +972,9 @@ function main()
         # meff_HDL=meff_HDL,
         zorder=30,
     )
-    if constant_fs == false
+    if constant_fs
+        ax.scatter([5.0], [zlist_fp_fm[end]], 30; color=colors[7], zorder=30, marker="x")
+    else
         ax.scatter([7.5], [zlist_fp_fm[end]], 30; color=colors[7], zorder=30, marker="x")
     end
 
@@ -1027,7 +1022,7 @@ function main()
             pad=10,
             fontsize=16,
         )
-        ax.axvline([6.769676967696769]; color=colors[7], ls="--", lw=1)
+        # ax.axvline([6.769676967696769]; color=colors[7], ls="--", lw=1)
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
     end
@@ -1068,13 +1063,11 @@ function main()
     plot_mvsrs(rslist, dlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
     # ax.scatter(rslist, dlist_fp, 15; color=colors[6], zorder=20, facecolors="none")
 
-    if constant_fs
-        rs_cut = rslist
-    else
-        rs_cut = rslist[rslist .< 8.0]
-    end
+    rs_cut = rslist[rslist .≤ rs_cutoff_fp_fm]
     plot_mvsrs(rs_cut, dlist_fp_fm, 7, "LQSGW\$^\\text{KO}\$", ax; ls="-", zorder=30)
-    if constant_fs == false
+    if constant_fs
+        ax.scatter([5.0], [dlist_fp_fm[end]], 30; color=colors[7], zorder=30, marker="x")
+    else
         ax.scatter([7.5], [dlist_fp_fm[end]], 30; color=colors[7], zorder=30, marker="x")
     end
 
@@ -1096,7 +1089,7 @@ function main()
             pad=10,
             fontsize=16,
         )
-        ax.axvline([6.769676967696769]; color=colors[7], ls="--", lw=1)
+        # ax.axvline([6.769676967696769]; color=colors[7], ls="--", lw=1)
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
     end
