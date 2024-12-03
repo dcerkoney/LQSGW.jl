@@ -1056,7 +1056,8 @@ function main()
 
     fig, ax = plt.subplots(; figsize=(5, 5))
 
-    kgrid_plot = collect(range(0; stop=3, length=90))
+    # kgrid_plot = collect(range(0; stop=3, length=90))
+    kgrid_plot = collect(range(0; stop=3, length=164))
     dk_plot = kgrid_plot[2] - kgrid_plot[1]
 
     # NOTE: weird bug when interpolating RPA kSgrids: bound is [minK, maxK] not [0, 2kF]!
@@ -1271,12 +1272,13 @@ function main()
 
     if constant_fs
         ax.set_title("Constant \$F^\\pm(q)\$"; pad=10, fontsize=16)
+        ax.set_ylim(0.75, 1.75)
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
+        ax.set_ylim(0.75, 1.75)
     end
     # ax.set_xlim(0, 6)
     ax.set_xlim(0, 2)
-    ax.set_ylim(0.75, 1.7)
     # ax.set_ylim(ylims)
     ax.set_xlabel("\$k / k_F\$")
     ax.set_ylabel("\$m\\partial^2_k\\mathcal{E}_\\text{qp}(k)\$")

@@ -309,15 +309,15 @@ function plot_landaufunc(
                 push!(Fs_qlist_v2, Fs_v2)
             end
             # Plot F_i
-            h1, = ax1.plot(
-                q_kF_plot,
-                Fs_qlist_PW_const,
-                "-.";
-                label="\$1 - \\frac{\\kappa_0}{\\kappa}\$ (old)",
-                # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\kappa_0}{\\kappa}\\Big)\$",
-                # label="\$\\frac{1}{\\mathcal{N}_F}\\left(1 - \\frac{\\kappa_0}{\\kappa}\\right)\$ (\$r_s = $(Int(round(rs)))\$)",
-                color=colors[ic + 1][1],
-            )
+            # h1, = ax1.plot(
+            #     q_kF_plot,
+            #     Fs_qlist_PW_const,
+            #     "-.";
+            #     label="\$-0.0025 + 0.1721 r_s + 0.0036 r^2_s\$",
+            #     # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\kappa_0}{\\kappa}\\Big)\$",
+            #     # label="\$\\frac{1}{\\mathcal{N}_F}\\left(1 - \\frac{\\kappa_0}{\\kappa}\\right)\$ (\$r_s = $(Int(round(rs)))\$)",
+            #     color=colors[ic + 1][1],
+            # )
             h2, = ax1.plot(
                 q_kF_plot,
                 Fs_qlist;
@@ -325,15 +325,15 @@ function plot_landaufunc(
                 # label="\$F^+(q)\$ (\$r_s = $(Int(round(rs)))\$)",
                 color=colors[ic][1],
             )
-            h3, = ax1.plot(
-                q_kF_plot,
-                Fa_qlist_PW_const,
-                "-.";
-                label="\$1 - \\frac{\\chi_0}{\\chi}\$ (old)",
-                # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\chi_0}{\\chi}\\Big)\$",
-                # label="\$\\frac{1}{\\mathcal{N}_F}\\left(1 - \\frac{\\chi_0}{\\chi}\\right)\$ (\$r_s = $(Int(round(rs)))\$)",
-                color=colors[ic + 1][2],
-            )
+            # h3, = ax1.plot(
+            #     q_kF_plot,
+            #     Fa_qlist_PW_const,
+            #     "-.";
+            #     label="\$0.0179 + 0.1232 r_s + 0.0091 r^2_s\$",
+            #     # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\chi_0}{\\chi}\\Big)\$",
+            #     # label="\$\\frac{1}{\\mathcal{N}_F}\\left(1 - \\frac{\\chi_0}{\\chi}\\right)\$ (\$r_s = $(Int(round(rs)))\$)",
+            #     color=colors[ic + 1][2],
+            # )
             h4, = ax1.plot(
                 q_kF_plot,
                 Fa_qlist;
@@ -345,7 +345,7 @@ function plot_landaufunc(
                 q_kF_plot,
                 Fs_qlist_new_const,
                 "--";
-                label="\$1 - \\frac{\\kappa_0}{\\kappa}\$ (new)",
+                label="\$\\left(1 - \\frac{\\kappa_0}{\\kappa}\\right)_\\text{DMC}\$",
                 # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\kappa_0}{\\kappa}\\Big)\$",
                 # label="\$\\frac{1}{\\mathcal{N}_F}\\left(1 - \\frac{\\kappa_0}{\\kappa}\\right)\$ (\$r_s = $(Int(round(rs)))\$)",
                 color=colors[ic + 1][1],
@@ -354,13 +354,14 @@ function plot_landaufunc(
                 q_kF_plot,
                 Fa_qlist_new_const,
                 "--";
-                label="\$1 - \\frac{\\chi_0}{\\chi}\$ (new)",
+                label="\$\\left(1 - \\frac{\\chi_0}{\\chi}\\right)_\\text{DMC}\$",
                 # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\kappa_0}{\\kappa}\\Big)\$",
                 # label="\$\\frac{1}{\\mathcal{N}_F}\\left(1 - \\frac{\\kappa_0}{\\kappa}\\right)\$ (\$r_s = $(Int(round(rs)))\$)",
                 color=colors[ic + 1][2],
             )
-            println(h1)
-            append!(l1_handles, [h2, h1, h5, h4, h3, h6])
+            # println(h1)
+            # append!(l1_handles, [h2, h1, h5, h4, h3, h6])
+            append!(l1_handles, [h2, h5, h4, h6])
             # Increment color index
             ic += 1
         end
@@ -380,12 +381,12 @@ function plot_landaufunc(
         push!(Fa_q0_rslist, Fa_q0)
     end
     # Finish Fig. 1
-    ax1.set_ylim(0.2, 3.2)
+    ax1.set_ylim(0.2, 2.8)
     # ax1.set_ylim(0, 0.28)
     top_legend = plt.legend(;
         handles=l1_handles,
         loc="upper center",
-        fontsize=14,
+        fontsize=12,
         ncol=2,
         title="\$r_s = 10\$",
     )
@@ -403,44 +404,56 @@ function plot_landaufunc(
     println(rslist)
     println(Fs_q0_rslist)
     println(Fa_q0_rslist)
-    ax4.plot(rslist, Fs_q0_rslist; label="\$F^+(q = 0)\$", color=cdict["orange"])
+    ax4.plot(
+        rslist,
+        Fs_q0_rslist;
+        label="\$F^+(q = 0) = \\left(\\textstyle1 - \\frac{\\kappa_0}{\\kappa}\\right)_\\text{DMC}\$",
+        color=cdict["orange"],
+    )
     ax4.plot(
         rslist,
         Fs_const_PW_q0_rslist,
         "-.";
-        label="\$\\textstyle1 - \\frac{\\kappa_0}{\\kappa}\$ (old)",
+        label="\$\\textstyle-0.0025 + 0.1721 r_s + 0.0036 r^2_s\$",
         # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\kappa_0}{\\kappa}\\Big)\$",
         color=cdict["teal"],
     )
+    # ax4.plot(
+    #     rslist,
+    #     Fs_const_new_q0_rslist,
+    #     "--";
+    #     label="\$\\left(\\textstyle1 - \\frac{\\kappa_0}{\\kappa}\\right)_\\text{DMC}\$",
+    #     # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\kappa_0}{\\kappa}\\Big)\$",
+    #     color=cdict["cyan"],
+    # )
     ax4.plot(
         rslist,
-        Fs_const_new_q0_rslist,
-        "--";
-        label="\$\\textstyle1 - \\frac{\\kappa_0}{\\kappa}\$ (new)",
-        # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\kappa_0}{\\kappa}\\Big)\$",
-        color=cdict["cyan"],
+        Fa_q0_rslist;
+        label="\$F^-(q = 0) = \\left(\\textstyle1 - \\frac{\\chi_0}{\\chi}\\right)_\\text{DMC}\$",
+        color=cdict["blue"],
     )
-    ax4.plot(rslist, Fa_q0_rslist; label="\$F^-(q = 0)\$", color=cdict["blue"])
     ax4.plot(
         rslist,
         Fa_const_PW_q0_rslist,
         "-.";
-        label="\$\\textstyle1 - \\frac{\\chi_0}{\\chi}\$ (old)",
+        label="\$\\textstyle+0.0179 + 0.1232 r_s + 0.0091 r^2_s\$",
         # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\chi_0}{\\chi}\\Big)\$",
         color=cdict["red"],
     )
-    ax4.plot(
-        rslist,
-        Fa_const_new_q0_rslist,
-        "--";
-        label="\$\\textstyle1 - \\frac{\\chi_0}{\\chi}\$ (new)",
-        # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\chi_0}{\\chi}\\Big)\$",
-        color=cdict["magenta"],
-    )
+    # ax4.plot(
+    #     rslist,
+    #     Fa_const_new_q0_rslist,
+    #     "--";
+    #     label="\$\\left(\\textstyle1 - \\frac{\\chi_0}{\\chi}\\right)_\\text{DMC}\$",
+    #     # label="\$\\textstyle\\frac{1}{\\mathcal{N}_F}\\Big(1 - \\frac{\\chi_0}{\\chi}\\Big)\$",
+    #     color=cdict["magenta"],
+    # )
     # ax4.set_xticks(0:5)
     # ax4.set_xlim(0, 1)
-    ax4.set_ylim(-0.05, 2.8)
-    legend(; loc="best", ncol=2, fontsize=14, columnspacing=0.5)
+    # ax4.set_ylim(-0.05, 2.8)
+    ax4.set_ylim(-0.1, 2.4)
+    legend(; loc="best", ncol=1, fontsize=12)
+    # legend(; loc="best", ncol=2, fontsize=14, columnspacing=0.5)
     ylabel("\$F^\\pm(q = 0)\$")
     xlabel("\$r_s\$")
     tight_layout()
@@ -626,9 +639,9 @@ function main()
 
     rs_cutoff_fp_fm = constant_fs ? 5.0 : 7.5
 
-    # plot_landaufunc(beta, collect(sort!(unique!([10; LinRange(0.01, 10, 2001)]))); dir="")
+    plot_landaufunc(beta, collect(sort!(unique!([10; LinRange(0.01, 10, 2001)]))); dir="")
     # plot_landaufunc(beta, [1]; dir="")
-    # return
+    return
 
     if constant_fs
         fsstr = "fs_const"
