@@ -132,38 +132,44 @@ function plot_spline(
     ax;
     ls="-",
     zorder=nothing,
-    extrapolate=false,
-    holes_at=[],
+    extrapolate_linear=false,
+    extrapolate_quadratic=false,
+    extrapolate_below=x[1],
+    mark_lower_extrapolation_bound=false,
 )
-    if extrapolate
-        mfitfunc = interp.PchipInterpolator(x, y; extrapolate=true)
+    x1 = Inf
+    y1 = Inf
+    if extrapolate_linear
+        fitfunc = interp.PchipInterpolator(x, y; extrapolate=true)
+    elseif extrapolate_quadratic
+        f = interp.Akima1DInterpolator(x, y)
+        fp = f.derivative()
+        x1 = extrapolate_below
+        y1 = f(x1)[1]
+        m1 = fp(x1)[1]
+        quadratic_extrapolant(x) = (m1 / x1) * (x^2 - x1^2) / 2 + y1
+        # Extrapolate function at x=0 via a quadratic using the constraint that f'(0) = 0
+        _fit(xs) = [_x < x1 ? quadratic_extrapolant(_x) : f(_x)[1] for _x in xs]
+        fitfunc = _fit
+        println("Extrapolated value at x = 0: $(fitfunc([0.0]))")
     else
-        mfitfunc = interp.Akima1DInterpolator(x, y)
+        fitfunc = interp.Akima1DInterpolator(x, y)
     end
     xgrid = np.arange(0, 6.2, 0.02)
     if isnothing(zorder) == false
         handle, = ax.plot(
             xgrid,
-            mfitfunc(xgrid);
+            fitfunc(xgrid);
             ls=ls,
             color=colors[idx],
             label=label,
             zorder=zorder,
         )
     else
-        handle, = ax.plot(xgrid, mfitfunc(xgrid); ls=ls, color=colors[idx], label=label)
+        handle, = ax.plot(xgrid, fitfunc(xgrid); ls=ls, color=colors[idx], label=label)
     end
-    if isempty(holes_at) == false
-        for x_hole in holes_at
-            ax.scatter(
-                x_hole,
-                mfitfunc(x_hole);
-                color=colors[idx],
-                zorder=zorder + 1,
-                s=20,
-                facecolor="white",
-            )
-        end
+    if mark_lower_extrapolation_bound
+        ax.scatter([x1], [y1]; color=colors[idx], s=10, zorder=10)
     end
     return handle
 end
@@ -890,7 +896,7 @@ function main()
         ax;
         ls="--",
         zorder=1,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     plot_spline(
         kplot_cd / kF,
@@ -900,7 +906,7 @@ function main()
         ax;
         ls="--",
         zorder=3,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     plot_spline(
         kplot_cd / kF,
@@ -910,9 +916,9 @@ function main()
         ax;
         ls="--",
         zorder=5,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
-    plot_spline(kplot_cd / kF, D_k_lqsgw, 4, "LQSGW", ax; zorder=2, extrapolate=true)
+    plot_spline(kplot_cd / kF, D_k_lqsgw, 4, "LQSGW", ax; zorder=2, extrapolate_linear=true)
     plot_spline(
         kplot_cd / kF,
         D_k_lqsgw_fp,
@@ -920,7 +926,7 @@ function main()
         "LQSGW\$^\\text{KO}_+\$",
         ax;
         zorder=4,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     plot_spline(
         kplot_cd[2:end] / kF,
@@ -929,7 +935,7 @@ function main()
         "LQSGW\$^\\text{KO}\$",
         ax;
         zorder=6,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     if constant_fs
         ax.set_title("Constant \$F^\\pm(q)\$"; pad=10, fontsize=16)
@@ -1058,6 +1064,7 @@ function main()
 
     # kgrid_plot = collect(range(0; stop=3, length=90))
     kgrid_plot = collect(range(0; stop=3, length=164))
+    # kgrid_plot = collect(range(0; stop=3, length=300))
     dk_plot = kgrid_plot[2] - kgrid_plot[1]
 
     # NOTE: weird bug when interpolating RPA kSgrids: bound is [minK, maxK] not [0, 2kF]!
@@ -1103,7 +1110,7 @@ function main()
         ax;
         ls="--",
         zorder=100,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     plot_spline(
         kplot_cd / kF,
@@ -1113,7 +1120,7 @@ function main()
         ax;
         ls="--",
         zorder=1,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     plot_spline(
         kplot_cd / kF,
@@ -1123,7 +1130,7 @@ function main()
         ax;
         ls="--",
         zorder=3,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     plot_spline(
         kplot_cd / kF,
@@ -1133,7 +1140,7 @@ function main()
         ax;
         ls="--",
         zorder=5,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     plot_spline(
         kplot_cd / kF,
@@ -1142,7 +1149,7 @@ function main()
         "LQSGW",
         ax;
         zorder=2,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     plot_spline(
         kplot_cd / kF,
@@ -1151,7 +1158,7 @@ function main()
         "LQSGW\$^\\text{KO}_+\$",
         ax;
         zorder=4,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
     plot_spline(
         kplot_cd / kF,
@@ -1160,7 +1167,7 @@ function main()
         "LQSGW\$^\\text{KO}\$",
         ax;
         zorder=6,
-        extrapolate=true,
+        extrapolate_linear=true,
     )
 
     if constant_fs
@@ -1210,7 +1217,8 @@ function main()
         ax;
         ls="--",
         zorder=100,
-        extrapolate=true,
+        extrapolate_quadratic=true,
+        # extrapolate_below=0.25,
     )
     plot_spline(
         kplot_cd2 / kF,
@@ -1220,7 +1228,8 @@ function main()
         ax;
         ls="--",
         zorder=1,
-        extrapolate=true,
+        extrapolate_quadratic=true,
+        # extrapolate_below=0.25,
     )
     plot_spline(
         kplot_cd2 / kF,
@@ -1230,7 +1239,8 @@ function main()
         ax;
         ls="--",
         zorder=3,
-        extrapolate=true,
+        extrapolate_quadratic=true,
+        # extrapolate_below=0.25,
     )
     plot_spline(
         kplot_cd2 / kF,
@@ -1240,7 +1250,8 @@ function main()
         ax;
         ls="--",
         zorder=5,
-        extrapolate=true,
+        extrapolate_quadratic=true,
+        # extrapolate_below=0.25,
     )
     plot_spline(
         kplot_cd2 / kF,
@@ -1249,7 +1260,8 @@ function main()
         "LQSGW",
         ax;
         zorder=2,
-        extrapolate=true,
+        extrapolate_quadratic=true,
+        extrapolate_below=0.25,
     )
     plot_spline(
         kplot_cd2 / kF,
@@ -1258,7 +1270,8 @@ function main()
         "LQSGW\$^\\text{KO}_+\$",
         ax;
         zorder=4,
-        extrapolate=true,
+        extrapolate_quadratic=true,
+        extrapolate_below=0.25,
     )
     plot_spline(
         kplot_cd2 / kF,
@@ -1267,15 +1280,16 @@ function main()
         "LQSGW\$^\\text{KO}\$",
         ax;
         zorder=6,
-        extrapolate=true,
+        extrapolate_quadratic=true,
+        extrapolate_below=0.25,
     )
 
     if constant_fs
         ax.set_title("Constant \$F^\\pm(q)\$"; pad=10, fontsize=16)
-        ax.set_ylim(0.75, 1.75)
+        ax.set_ylim(0.7, 1.75)
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
-        ax.set_ylim(0.75, 1.75)
+        ax.set_ylim(0.7, 1.75)
     end
     # ax.set_xlim(0, 6)
     ax.set_xlim(0, 2)
@@ -1593,16 +1607,7 @@ function main()
     energy_diff_qp_lqsgw_fp_fm = E_k_lqsgw_fp_fm - E_qp_lqsgw_fp_fm
 
     kplot = kSgrid_rpa
-    plot_spline(
-        kplot / kF,
-        energy_diff_qp_rpa,
-        1,
-        "\$G_0 W_0\$",
-        ax;
-        ls="--",
-        zorder=1,
-        holes_at=[],
-    )
+    plot_spline(kplot / kF, energy_diff_qp_rpa, 1, "\$G_0 W_0\$", ax; ls="--", zorder=1)
     plot_spline(
         kplot / kF,
         energy_diff_qp_rpa_fp,
@@ -1611,7 +1616,6 @@ function main()
         ax;
         ls="--",
         zorder=3,
-        holes_at=[],
     )
     plot_spline(
         kplot / kF,
@@ -1621,9 +1625,8 @@ function main()
         ax;
         ls="--",
         zorder=5,
-        holes_at=[],
     )
-    plot_spline(kplot / kF, energy_diff_qp_lqsgw, 4, "LQSGW", ax; zorder=2, holes_at=[])
+    plot_spline(kplot / kF, energy_diff_qp_lqsgw, 4, "LQSGW", ax; zorder=2)
     plot_spline(
         kplot / kF,
         energy_diff_qp_lqsgw_fp,
@@ -1631,7 +1634,6 @@ function main()
         "LQSGW\$^\\text{KO}_+\$",
         ax;
         zorder=4,
-        holes_at=[],
     )
     plot_spline(
         kplot / kF,
@@ -1640,7 +1642,6 @@ function main()
         "LQSGW\$^\\text{KO}\$",
         ax;
         zorder=6,
-        holes_at=[],
     )
 
     if constant_fs
@@ -1859,7 +1860,6 @@ function main()
     #     ax;
     #     ls="--",
     #     zorder=1,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -1869,7 +1869,6 @@ function main()
     #     ax;
     #     ls="-",
     #     zorder=1,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -1879,7 +1878,6 @@ function main()
     #     ax;
     #     ls="--",
     #     zorder=3,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -1889,7 +1887,6 @@ function main()
     #     ax;
     #     ls="-",
     #     zorder=3,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -1899,7 +1896,6 @@ function main()
     #     ax;
     #     ls="--",
     #     zorder=5,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -1909,7 +1905,6 @@ function main()
     #     ax;
     #     ls="-",
     #     zorder=5,
-    #     holes_at=[],
     # )
     # if constant_fs
     #     ax.set_title("Constant \$F^\\pm(q)\$"; pad=10, fontsize=16)
@@ -1966,7 +1961,6 @@ function main()
     #     ax;
     #     ls="--",
     #     zorder=2,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -1976,7 +1970,6 @@ function main()
     #     ax;
     #     ls="-",
     #     zorder=2,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -1986,7 +1979,6 @@ function main()
     #     ax;
     #     ls="--",
     #     zorder=4,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -1996,7 +1988,6 @@ function main()
     #     ax;
     #     ls="-",
     #     zorder=4,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -2006,7 +1997,6 @@ function main()
     #     ax;
     #     ls="--",
     #     zorder=6,
-    #     holes_at=[],
     # )
     # plot_spline(
     #     kSgrid_rpa / kF,
@@ -2016,7 +2006,6 @@ function main()
     #     ax;
     #     ls="-",
     #     zorder=6,
-    #     holes_at=[],
     # )
     # if constant_fs
     #     ax.set_title("Constant \$F^\\pm(q)\$"; pad=10, fontsize=16)

@@ -634,14 +634,14 @@ function main()
     # rslist = collect(range(1, 10; step=0.5))
     beta = 40.0
     dim = 3
-    constant_fs = true
-    # constant_fs = false
+    # constant_fs = true
+    constant_fs = false
 
     rs_cutoff_fp_fm = constant_fs ? 5.0 : 7.5
 
-    plot_landaufunc(beta, collect(sort!(unique!([10; LinRange(0.01, 10, 2001)]))); dir="")
+    # plot_landaufunc(beta, collect(sort!(unique!([10; LinRange(0.01, 10, 2001)]))); dir="")
     # plot_landaufunc(beta, [1]; dir="")
-    return
+    # return
 
     if constant_fs
         fsstr = "fs_const"
