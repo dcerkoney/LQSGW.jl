@@ -152,6 +152,8 @@ function main()
             Fa=int_type == :ko_const_pm ? Fa : -0.0,
             verbose=verbose,
             save=save,
+            savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)$(sc_string)",
+            savename="g0w0_$(param.dim)d_$(int_type)$(sc_string)_rs=$(round(param.rs; sigdigits=4))_beta=$(round(param.beta; sigdigits=4)).jld2",
         )
     end
 
