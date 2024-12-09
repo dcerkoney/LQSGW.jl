@@ -45,7 +45,8 @@ function get_self_consistent_Fs(param::Parameter.Para)
         return integral
     end
     F0p_sc = find_zero(Fp -> I0_KOp(rs, Fp) - Fp / 2, (-10.0, 10.0))
-    return F0p_sc
+    # NOTE: NEFT uses opposite sign convention for F!
+    return -F0p_sc
 end
 
 """
@@ -297,7 +298,7 @@ function main()
             # Fa = get_Fa_PW(rs)
         end
         if param.rs > 0.25
-            @assert Fs > 0 && Fa > 0 "Incorrect signs for Fs/Fa!"
+            @assert Fs > 0 && Fa > 0 "Signs for Fs/Fa should be positive to match the ElectronGas.jl convention!"
         end
         # Compute LQSGW quasiparticle properties
         println_root("Calculating LQSGW quasiparticle properties for rs = $rs...")
