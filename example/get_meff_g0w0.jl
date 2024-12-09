@@ -171,7 +171,7 @@ function main()
         if self_consistent_fs
             # Get Fermi liquid parameter F⁰ₛ(rs) from tree-level self-consistent calculation
             Fs = get_self_consistent_Fs(param)
-            Fa = 0.0
+            Fa = 1e-13
             println("(rs = $rs) Self-consistent Fs = $Fs")
         else
             # Get Fermi liquid parameters F⁰ₛ(rs) and F⁰ₐ(rs) from Corradini fits
