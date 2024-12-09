@@ -59,15 +59,15 @@ function plot_spline(
     extrapolate=true,
 )
     if extrapolate
-        mfitfunc = interp.PchipInterpolator(x, y; extrapolate=true)
+        fitfunc = interp.PchipInterpolator(x, y; extrapolate=true)
     else
-        mfitfunc = interp.Akima1DInterpolator(x, y)
+        fitfunc = interp.Akima1DInterpolator(x, y)
     end
     xgrid = np.arange(0, 6.2, 0.02)
     if isnothing(lw) == false
-        handle, = ax.plot(xgrid, mfitfunc(xgrid); ls=ls, color=color, label=label, lw=lw)
+        handle, = ax.plot(xgrid, fitfunc(xgrid); ls=ls, color=color, label=label, lw=lw)
     else
-        handle, = ax.plot(xgrid, mfitfunc(xgrid); ls=ls, color=color, label=label)
+        handle, = ax.plot(xgrid, fitfunc(xgrid); ls=ls, color=color, label=label)
     end
     return handle
 end
@@ -95,9 +95,7 @@ function main()
     minK = 1e-6 * kF
 
     # Test LQSGW parameters
-    max_steps = 300
     int_type = :rpa
-    @assert int_type == :rpa "Only RPA is supported for now!"
 
     # ElectronGas.jl defaults for G0W0 self-energy
     maxK = 6 * kF

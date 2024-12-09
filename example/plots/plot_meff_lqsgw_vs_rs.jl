@@ -187,9 +187,8 @@ function load_lqsgw_data_new_format(
     param::Parameter.Para,
     int_type,
     savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="lqsgw_$(param.dim)d_$(int_type).jld2";
-    # savename="lqsgw_$(param.dim)d_$(int_type)_final.jld2";
-    # savename="lqsgw_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
+    # savename="lqsgw_$(param.dim)d_$(int_type).jld2";
+    savename="lqsgw_$(param.dim)d_$(int_type)_final.jld2";
 )
     local data
     # max_step = -1
@@ -213,9 +212,8 @@ function load_oneshot_data_new_format(
     param::Parameter.Para,
     int_type,
     savedir="$(LQSGW.DATA_DIR)/$(param.dim)d/$(int_type)",
-    savename="oneshot_gw_$(param.dim)d_$(int_type).jld2";
-    # savename="oneshot_gw_$(param.dim)d_$(int_type)_final.jld2";
-    # savename="g0w0_$(param.dim)d_$(int_type)_rs=$(round(param.rs; sigdigits=4))_beta=$(param.beta).jld2";
+    # savename="oneshot_gw_$(param.dim)d_$(int_type).jld2";
+    savename="oneshot_gw_$(param.dim)d_$(int_type)_final.jld2";
 )
     local data
     filename = joinpath(savedir, savename)
@@ -1039,7 +1037,7 @@ function main()
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
     end
-    ax.set_ylim(0.38, 1.02)
+    ax.set_ylim(0.34, 1.02)
     ax.set_xticks(0:2:10)
     ax.set_xlabel("\$r_s\$")
     ax.set_ylabel("\$Z_F\$")
@@ -1106,7 +1104,7 @@ function main()
     else
         ax.set_title("Momentum-resolved \$F^\\pm(q)\$"; pad=10, fontsize=16)
     end
-    # ax.set_ylim(0.42, 1.02)
+    ax.set_ylim(0.95, 2.1)
     ax.set_xticks(0:2:10)
     ax.set_xlabel("\$r_s\$")
     ax.set_ylabel("\$D_F\$")

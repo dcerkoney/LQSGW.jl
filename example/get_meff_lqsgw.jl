@@ -1,13 +1,52 @@
+using CompositeGrids
 using ElectronGas
 using JLD2
 using LQSGW
 using MPI
 using Parameters
 using PyCall
+using Roots
 
 import LQSGW: println_root, DATA_DIR
 
 @pyimport numpy as np   # for saving/loading numpy data
+
+const alpha_ueg = (4 / 9π)^(1 / 3)
+
+function lindhard(x)
+    if abs(x) < 1e-4
+        return 1.0 - x^2 / 3 - x^4 / 15
+    elseif abs(x - 1) < 1e-7
+        return 0.5
+    elseif x > 20
+        return 1 / (3 * x^2) + 1 / (15 * x^4)
+    end
+    return 0.5 + ((1 - x^2) / (4 * x)) * log(abs((1 + x) / (1 - x)))
+end
+
+function integrand_F0p(x, rs_tilde, Fs=0.0)
+    if isinf(rs_tilde)
+        return -x / lindhard(x)
+    end
+    coeff = rs_tilde + Fs * x^2
+    NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x))
+    return -x * NF_times_Rp_ex
+end
+
+"""
+Solve I0[F+] = F+ / 2 to obtain a tree-level self-consistent value for F⁰ₛ.
+"""
+function get_self_consistent_Fs(param::Parameter.Para)
+    @unpack rs = param
+    function I0_KOp(x, y)
+        ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+        integrand = [integrand_F0p(t, x * alpha_ueg / π, y) for t in ts]
+        integral = CompositeGrids.Interp.integrate1D(integrand, ts)
+        return integral
+    end
+    F0p_sc = find_zero(Fp -> I0_KOp(rs, Fp) - Fp / 2, (-10.0, 10.0))
+    return F0p_sc
+end
 
 """
 Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via Corradini's fit
@@ -31,35 +70,35 @@ to the DMC susceptibility enhancement [doi: 10.1103/PhysRevB.57.14569].
     return 1.0 - chi0_over_chi
 end
 
-"""
-Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via a fit to the DMC compressibility
-enhancement following Kukkonen & Chen (2021) [doi: 10.48550/arXiv.2101.10508].
-"""
-@inline function get_Fs_PW(rs)
-    if rs < 2.0 || rs > 5.0
-        @warn "The simple quadratic interpolation for Fs may " *
-              "be inaccurate outside the metallic regime rs = 2–5!"
-    end
-    kappa0_over_kappa = 1.0025 - 0.1721rs - 0.0036rs^2
-    # NOTE: NEFT uses opposite sign convention for F!
-    # -F⁰ₛ = 1 - κ₀/κ
-    return 1.0 - kappa0_over_kappa
-end
+# """
+# Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via a fit to the DMC compressibility
+# enhancement following Kukkonen & Chen (2021) [doi: 10.48550/arXiv.2101.10508].
+# """
+# @inline function get_Fs_PW(rs)
+#     if rs < 2.0 || rs > 5.0
+#         @warn "The simple quadratic interpolation for Fs may " *
+#               "be inaccurate outside the metallic regime rs = 2–5!"
+#     end
+#     kappa0_over_kappa = 1.0025 - 0.1721rs - 0.0036rs^2
+#     # NOTE: NEFT uses opposite sign convention for F!
+#     # -F⁰ₛ = 1 - κ₀/κ
+#     return 1.0 - kappa0_over_kappa
+# end
 
-"""
-Get the antisymmetric l=0 Fermi-liquid parameter F⁰ₐ via a fit to the DMC susceptibility
-enhancement following Kukkonen & Chen (2021) [doi: 10.48550/arXiv.2101.10508].
-"""
-@inline function get_Fa_PW(rs)
-    if rs < 2.0 || rs > 5.0
-        @warn "The simple quadratic interpolation for Fa may " *
-              "be inaccurate outside the metallic regime rs = 2–5!"
-    end
-    chi0_over_chi = 0.9821 - 0.1232rs + 0.0091rs^2
-    # NOTE: NEFT uses opposite sign convention for F!
-    # -F⁰ₐ = 1 - χ₀/χ
-    return 1.0 - chi0_over_chi
-end
+# """
+# Get the antisymmetric l=0 Fermi-liquid parameter F⁰ₐ via a fit to the DMC susceptibility
+# enhancement following Kukkonen & Chen (2021) [doi: 10.48550/arXiv.2101.10508].
+# """
+# @inline function get_Fa_PW(rs)
+#     if rs < 2.0 || rs > 5.0
+#         @warn "The simple quadratic interpolation for Fa may " *
+#               "be inaccurate outside the metallic regime rs = 2–5!"
+#     end
+#     chi0_over_chi = 0.9821 - 0.1232rs + 0.0091rs^2
+#     # NOTE: NEFT uses opposite sign convention for F!
+#     # -F⁰ₐ = 1 - χ₀/χ
+#     return 1.0 - chi0_over_chi
+# end
 
 function main()
     MPI.Init()
@@ -77,19 +116,21 @@ function main()
     # Nk, order = 10, 7
 
     # LQSGW parameters
-    max_steps = 500
+    max_steps = 200
     atol = 1e-5
     #alpha = 0.2
     δK = 5e-6
     verbose = true
     save = true
     save_qp = true
-    #constant_fs = true
-    constant_fs = false
+    constant_fs = true
+    self_consistent_fs = true
 
     # Use data at previous rs as initial guess for next rs or not?
     use_prev_rs = true
-    # use_prev_rs = false
+
+    # Use G0W0 for the first rs datapoint, or existing data?
+    overwrite = true
 
     # calculate = Dict("rpa" => true, "fp" => false, "fp_fm" => true)
     # rslist = [5.0]
@@ -100,13 +141,15 @@ function main()
     # rslist = [7.75, 8.0, 8.25, 8.5, 8.75, 9.0, 9.25, 9.5, 9.75, 10.0]
     # alphalist = [0.1, 0.1, 0.1, 0.1, 0.1, 0.075, 0.075, 0.075, 0.05, 0.05]
 
-    # Use G0W0 for the first rs datapoint, or existing data?
-    overwrite = true
+    # Full calculation self-consistent f+
+    calculate = Dict("rpa" => false, "fp" => true, "fp_fm" => false)
+    rslist = [0.01, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0]
+    alphalist = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1]
 
-    # Full calculation f-
-    calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
-    rslist = [0.01, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5]
-    alphalist = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2]
+    # # Full calculation f-
+    # calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
+    # rslist = [0.01, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5]
+    # alphalist = [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 0.2, 0.2]
 
     # # Full calculation rpa and f+
     # calculate = Dict("rpa" => false, "fp" => false, "fp_fm" => true)
@@ -163,6 +206,12 @@ function main()
     # # rslist = [0.01; collect(range(0.0, 10.0, step=0.5))[2:end]]  # for 3D
     # # rslist = [1.0, 3.0]
 
+    if self_consistent_fs
+        @assert constant_fs == true "We require `int_type = :ko_const`` for the self-consistent Fs calculation!"
+        @assert calculate["fp"] == true "Self-consistent calculation requires f+ run!"
+        @assert calculate["fp_fm"] == false "Self-consistent calculation with Fa is not currently supported!"
+    end
+
     # NOTE: int_type ∈ [:ko_const, :ko_takada_plus, :ko_takada, :ko_moroni, :ko_simion_giuliani] 
     # NOTE: KO interaction using G+ and/or G- is currently only available in 3D
     if constant_fs
@@ -174,6 +223,7 @@ function main()
     end
     @assert int_type_fp ∈ [:ko_const_p, :ko_takada_plus, :ko_moroni]
     @assert int_type_fp_fm ∈ [:ko_const_pm, :ko_takada, :ko_simion_giuliani]
+    sc_string = self_consistent_fs && int_type_fp == :ko_const_p ? "_sc" : ""
 
     # Helper function to calculate LQSGW quasiparticle properties
     function run_lqsgw(
@@ -217,7 +267,7 @@ function main()
             return nothing
         else
             prev_rs = rslist[i - 1]
-            return "lqsgw_$(dim)d_$(int_type)_rs=$(round(prev_rs; sigdigits=4))_beta=$(round(beta; sigdigits=4)).jld2"
+            return "lqsgw_$(dim)d_$(int_type)$(sc_string)_rs=$(round(prev_rs; sigdigits=4))_beta=$(round(beta; sigdigits=4)).jld2"
         end
     end
 
@@ -234,12 +284,18 @@ function main()
         # ElectronGas.jl defaults for G0W0 self-energy
         maxK = 6 * kF
         minK = 1e-6 * kF
-        # Get Fermi liquid parameter F⁰ₛ(rs) from Corradini fits
-        Fs = get_Fs_new(param)
-        Fa = get_Fa_new(param)
-        # # Get Fermi liquid parameter F⁰ₛ(rs) from Kun & Kukkonen fits
-        # Fs = get_Fs_PW(rs)
-        # Fa = get_Fa_PW(rs)
+        if self_consistent_fs
+            # Get Fermi liquid parameter F⁰ₛ(rs) from tree-level self-consistent calculation
+            Fs = get_self_consistent_Fs(param)
+            Fa = 0.0
+        else
+            # Get Fermi liquid parameters F⁰ₛ(rs) and F⁰ₐ(rs) from Corradini fits
+            Fs = get_Fs_new(param)
+            Fa = get_Fa_new(param)
+            # # Get Fermi liquid parameters F⁰ₛ(rs) and F⁰ₐ(rs) from Kun & Kukkonen fits
+            # Fs = get_Fs_PW(rs)
+            # Fa = get_Fa_PW(rs)
+        end
         if param.rs > 0.25
             @assert Fs > 0 && Fa > 0 "Incorrect signs for Fs/Fa!"
         end
@@ -310,14 +366,14 @@ function main()
         )
             !calc && continue
             # Make output directory if needed
-            dir = "$(DATA_DIR)/$(dim)d/$(int_type)"
+            dir = "$(DATA_DIR)/$(dim)d/$(int_type)$(sc_string)"
             mkpath(dir)
             # Avoid overwriting existing data
             i = 0
-            f = "lqsgw_$(dim)d_$(int_type).jld2"
+            f = "lqsgw_$(dim)d_$(int_type)$(sc_string).jld2"
             while isfile(joinpath(dir, f))
                 i += 1
-                f = "lqsgw_$(dim)d_$(int_type)_$(i).jld2"
+                f = "lqsgw_$(dim)d_$(int_type)$(sc_string)_$(i).jld2"
             end
             # Save to JLD2
             jldopen(joinpath(dir, f), "w") do file
