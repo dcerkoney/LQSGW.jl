@@ -837,11 +837,11 @@ function main()
     if self_consistent_fs
         labels = [
             "\$G_0 W_0\$",
-            "\$G_0 W^\\text{KO}_{0,+}\$",
-            "\$G_0 W^\\text{KO}_{0,+}\$ \$(F^+_\\text{sc})\$",
+            "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$",
+            "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{sc}]\$",
         ]
     else
-        labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}\$", "\$G_0 W^\\text{KO}_0\$"]
+        labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$", "\$G_0 W^\\text{KO}_0\$"]
     end
     for (rs, mefflist, label, idx) in zip(rslists, meff_oneshot, labels, indices)
         print("\nPlotting ", label)
@@ -881,7 +881,7 @@ function main()
         rslist,
         mefflist_fp,
         6,
-        "LQSGW\$^\\text{KO}_+\$",
+        "LQSGW\$^\\text{KO}_+[F^+_\\text{DMC}]\$",
         ax;
         ls="-",
         rs_HDL=rs_HDL,
@@ -895,7 +895,7 @@ function main()
         rs_cut,
         mefflist_fp_fm,
         7,
-        self_consistent_fs ? "LQSGW\$^\\text{KO}_+\$ \$(F^+_\\text{sc})\$" :
+        self_consistent_fs ? "LQSGW\$^\\text{KO}_+[F^+_\\text{sc}]\$" :
         "LQSGW\$^\\text{KO}\$",
         ax;
         ls="-",
@@ -1003,11 +1003,11 @@ function main()
     if self_consistent_fs
         labels = [
             "\$G_0 W_0\$",
-            "\$G_0 W^\\text{KO}_{0,+}\$",
-            "\$G_0 W^\\text{KO}_{0,+}\$ \$(F^+_\\text{sc})\$",
+            "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$",
+            "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{sc}]\$",
         ]
     else
-        labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}\$", "\$G_0 W^\\text{KO}_0\$"]
+        labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$", "\$G_0 W^\\text{KO}_0\$"]
     end
     for (rs, zlist, label, idx) in zip(rslists, z_oneshot, labels, indices)
         print("\nPlotting ", label)
@@ -1018,7 +1018,15 @@ function main()
     plot_mvsrs(rslist, zlist_g0w0, 5, "LQSGW", ax; ls="-", zorder=10)
     # ax.scatter(rslist, zlist_g0w0, 15; color=colors[5], zorder=10, facecolors="none")
 
-    plot_mvsrs(rslist, zlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
+    plot_mvsrs(
+        rslist,
+        zlist_fp,
+        6,
+        "LQSGW\$^\\text{KO}_+[F^+_\\text{DMC}]\$",
+        ax;
+        ls="-",
+        zorder=20,
+    )
     # ax.scatter(rslist, zlist_fp, 15; color=colors[6], zorder=20, facecolors="none")
 
     rs_cut = rslist[rslist .≤ rs_cutoff_fp_fm]
@@ -1026,7 +1034,7 @@ function main()
         rs_cut,
         zlist_fp_fm,
         7,
-        self_consistent_fs ? "LQSGW\$^\\text{KO}_+\$ \$(F^+_\\text{sc})\$" :
+        self_consistent_fs ? "LQSGW\$^\\text{KO}_+[F^+_\\text{sc}]\$" :
         "LQSGW\$^\\text{KO}\$",
         ax;
         ls="-",
@@ -1120,11 +1128,11 @@ function main()
     if self_consistent_fs
         labels = [
             "\$G_0 W_0\$",
-            "\$G_0 W^\\text{KO}_{0,+}\$",
-            "\$G_0 W^\\text{KO}_{0,+}\$ \$(F^+_\\text{sc})\$",
+            "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$",
+            "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{sc}]\$",
         ]
     else
-        labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}\$", "\$G_0 W^\\text{KO}_0\$"]
+        labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$", "\$G_0 W^\\text{KO}_0\$"]
     end
     for (rs, dlist, label, idx) in zip(rslists, d_oneshot, labels, indices)
         print("\nPlotting ", label)
@@ -1146,7 +1154,7 @@ function main()
         zorder=2000,
     )
 
-    plot_mvsrs(rslist, dlist_fp, 6, "LQSGW\$^\\text{KO}_+\$", ax; ls="-", zorder=20)
+    plot_mvsrs(rslist, dlist_fp, 6, "LQSGW\$^\\text{KO}_+[F^+_\\text{DMC}]\$", ax; ls="-", zorder=20)
     # ax.scatter(rslist, dlist_fp, 15; color=colors[6], zorder=20, facecolors="none")
 
     rs_cut = rslist[rslist .≤ rs_cutoff_fp_fm]
@@ -1154,7 +1162,7 @@ function main()
         rs_cut,
         dlist_fp_fm,
         7,
-        self_consistent_fs ? "LQSGW\$^\\text{KO}_+\$ \$(F^+_\\text{sc})\$" :
+        self_consistent_fs ? "LQSGW\$^\\text{KO}_+[F^+_\\text{sc}]\$" :
         "LQSGW\$^\\text{KO}\$",
         ax;
         ls="-",
