@@ -36,7 +36,7 @@ end
 """
 Solve I0[F+] = F+ / 2 to obtain a tree-level self-consistent value for F⁰ₛ.
 """
-function get_self_consistent_Fs(param::Parameter.Para)
+function get_tree_level_self_consistent_Fs(param::Parameter.Para)
     @unpack rs = param
     function I0_KOp(x, y)
         ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
@@ -289,7 +289,7 @@ function main()
         minK = 1e-6 * kF
         if self_consistent_fs
             # Get Fermi liquid parameter F⁰ₛ(rs) from tree-level self-consistent calculation
-            Fs = get_self_consistent_Fs(param)
+            Fs = get_tree_level_self_consistent_Fs(param)
             Fa = 1e-13
             println("(rs = $rs) Self-consistent Fs = $Fs")
         else

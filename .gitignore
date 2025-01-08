@@ -38,7 +38,7 @@ archive/
 data/
 example/convergence/
 example/test/
-figures/
+benchmarks/
 merged_data/
 references/
 scratch/
