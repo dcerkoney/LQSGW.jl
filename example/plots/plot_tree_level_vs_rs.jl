@@ -696,7 +696,7 @@ function get_self_consistent_F0p_KOp_v2()
     rslist = CompositeGrid.LogDensedGrid(:cheb, [0.0, 10.0], [0.0], 16, 1e-3, 16)
     F0ps_sc = Float64[]
     for rs in rslist
-        F0p_sc = find_zero(Fp -> I0_KOp(rs, Fp) - Fp / 2, (-10.0, 10.0))
+        F0p_sc = find_zero(Fp -> I0_KOp(rs, Fp) - Fp / 2, (-20.0, 20.0))
         push!(F0ps_sc, F0p_sc)
     end
     # # Least-squares fit to a [3/3] Pade rational form

@@ -50,7 +50,7 @@ reflabels = ["\$^*\$", "\$^\\dagger\$", "\$^\\ddagger\$"]
 Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via Corradini's fit
 to the DMC compressibility enhancement [doi: 10.1103/PhysRevB.57.14569].
 """
-@inline function get_Fs_new(param::Parameter.Para)
+@inline function get_Fs(param::Parameter.Para)
     kappa0_over_kappa = Interaction.compressibility_enhancement(param)
     # NOTE: NEFT uses opposite sign convention for F!
     # -F⁰ₛ = 1 - κ₀/κ
@@ -61,7 +61,7 @@ end
 Get the antisymmetric l=0 Fermi-liquid parameter F⁰ₐ via  Corradini's fit
 to the DMC susceptibility enhancement [doi: 10.1103/PhysRevB.57.14569].
 """
-@inline function get_Fa_new(param::Parameter.Para)
+@inline function get_Fa(param::Parameter.Para)
     chi0_over_chi = Interaction.spin_susceptibility_enhancement(param)
     # NOTE: NEFT uses opposite sign convention for F!
     # -F⁰ₐ = 1 - χ₀/χ
@@ -261,8 +261,8 @@ function plot_landaufunc(
         param = Parameter.rydbergUnit(1.0 / beta, rs)
         Fs_PW = get_Fs_PW(rs)
         Fa_PW = get_Fa_PW(rs)
-        Fs_new = get_Fs_new(param)
-        Fa_new = get_Fa_new(param)
+        Fs_new = get_Fs(param)
+        Fa_new = get_Fa(param)
         # Calculate the Coulomb interaction for plot momenta q
         Vq = []
         for q in q_kF_plot * param.kF

@@ -53,7 +53,7 @@ end
 Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via Corradini's fit
 to the DMC compressibility enhancement [doi: 10.1103/PhysRevB.57.14569].
 """
-@inline function get_Fs_new(param::Parameter.Para)
+@inline function get_Fs(param::Parameter.Para)
     kappa0_over_kappa = Interaction.compressibility_enhancement(param)
     # NOTE: NEFT uses opposite sign convention for F!
     # -F⁰ₛ = 1 - κ₀/κ
@@ -64,7 +64,7 @@ end
 Get the antisymmetric l=0 Fermi-liquid parameter F⁰ₐ via  Corradini's fit
 to the DMC susceptibility enhancement [doi: 10.1103/PhysRevB.57.14569].
 """
-@inline function get_Fa_new(param::Parameter.Para)
+@inline function get_Fa(param::Parameter.Para)
     chi0_over_chi = Interaction.spin_susceptibility_enhancement(param)
     # NOTE: NEFT uses opposite sign convention for F!
     # -F⁰ₐ = 1 - χ₀/χ
@@ -294,8 +294,8 @@ function main()
             println("(rs = $rs) Self-consistent Fs = $Fs")
         else
             # Get Fermi liquid parameters F⁰ₛ(rs) and F⁰ₐ(rs) from Corradini fits
-            Fs = get_Fs_new(param)
-            Fa = get_Fa_new(param)
+            Fs = get_Fs(param)
+            Fa = get_Fa(param)
             # # Get Fermi liquid parameters F⁰ₛ(rs) and F⁰ₐ(rs) from Kun & Kukkonen fits
             # Fs = get_Fs_PW(rs)
             # Fa = get_Fa_PW(rs)
