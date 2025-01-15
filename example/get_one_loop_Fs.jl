@@ -1,3 +1,4 @@
+using BenchmarkTools
 using Colors
 using CompositeGrids
 using ElectronGas
@@ -17,7 +18,6 @@ using Roots
 @pyimport scienceplots  # for style "science"
 @pyimport scipy.interpolate as interp
 
-const iw0 = im * π / β
 const alpha_ueg = (4 / 9π)^(1 / 3)
 
 # Mapping of interaction types to Landau parameters
@@ -56,13 +56,22 @@ rcParams["mathtext.fontset"] = "cm"
 rcParams["font.family"] = "Times New Roman"
 
 # Specify the type of momentum and frequency (index) grids explicitly to ensure type stability
-const MomGridType = CompositeGrids.CompositeG.Composite{
+const MomInterpGridType = CompositeGrids.CompositeG.Composite{
     Float64,
     CompositeGrids.SimpleG.Arbitrary{Float64,CompositeGrids.SimpleG.ClosedBound},
     CompositeGrids.CompositeG.Composite{
         Float64,
         CompositeGrids.SimpleG.Log{Float64},
         CompositeGrids.SimpleG.Uniform{Float64,CompositeGrids.SimpleG.ClosedBound},
+    },
+}
+const MomGridType = CompositeGrids.CompositeG.Composite{
+    Float64,
+    CompositeGrids.SimpleG.Arbitrary{Float64,CompositeGrids.SimpleG.ClosedBound},
+    CompositeGrids.CompositeG.Composite{
+        Float64,
+        CompositeGrids.SimpleG.Log{Float64},
+        CompositeGrids.SimpleG.GaussLegendre{Float64},
     },
 }
 const MGridType = CompositeGrids.SimpleG.Arbitrary{Int64,CompositeGrids.SimpleG.ClosedBound}
@@ -73,17 +82,14 @@ const FreqGridType =
     # UEG parameters
     beta::Float64
     rs::Float64
+    dim::Int = 3
+    spin::Int = 2
     Fs::Float64 = -0.0
-    Fa::Float64 = -0.0
 
     mass2::Float64 = 1e-6     # fictitious Yukawa screening λ
     massratio::Float64 = 1.0  # mass ratio m*/m
 
-    dim::Int = 3
-    spin::Int = 2
-
     basic::Parameter.Para = Parameter.rydbergUnit(1.0 / beta, rs, dim; Λs=mass2, spin=spin)
-
     kF::Float64 = basic.kF
     EF::Float64 = basic.EF
     β::Float64 = basic.β
@@ -94,36 +100,46 @@ const FreqGridType =
     NF::Float64 = basic.NF
     NFstar::Float64 = basic.NF * massratio
     qTF::Float64 = basic.qTF
-
     fs::Float64 = Fs / NF
-    fa::Float64 = Fa / NF
 
     # Momentum grid parameters
     maxK::Float64 = 6 * kF
     maxQ::Float64 = 6 * kF
     Q_CUTOFF::Float64 = 1e-10 * kF
 
-    # Use ~100 k-points for the momentum grids
+    # We precompute R(q, iνₘ) on a mesh of ~100 k-points
     # NOTE: EL.jl default is `Nk, order = 16, 16` (~700 k-points)
-    Nk, order = 7, 7
-    qgrid::MomGridType =
+    qgrid_interp::MomInterpGridType =
         CompositeGrid.LogDensedGrid(:uniform, [0.0, maxQ], [0.0, 2 * kF], 7, 0.01 * kF, 7)
+
+    # Later, we integrate R(q, iνₘ) on a Gaussian mesh of ~100 k-points
+    qgrid::MomGridType =
+        CompositeGrid.LogDensedGrid(:gauss, [0.0, maxQ], [0.0, 2 * kF], 7, 0.01 * kF, 7)
+
+    # Sparse angular grids (~100 points each)
+    # NOTE: EL.jl default is `Nk, order = 16, 32` (~1000 θ/φ-points)
+    θgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], 7, 1e-6, 7)
+    φgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], 7, 1e-6, 7)
 
     # Use a sparse DLR grid for the bosonic Matsubara summation (~30-50 iνₘ-points)
     dlr::DLRGrid{Float64,:ph} =
         DLRGrid(; Euv=10 * EF, β=β, rtol=1e-10, isFermi=false, symmetry=:ph)
     mgrid::MGridType = SimpleG.Arbitrary{Int64}(dlr.n)
-    vmgrid::Vector{Float64} = SimpleG.Arbitrary{Float64}(dlr.ωn)
+    vmgrid::FreqGridType = SimpleG.Arbitrary{Float64}(dlr.ωn)
     Mmax::Int64 = maximum(mgrid)
 
     # Incoming momenta k1, k2 and incident scattering angle
     kamp1::Float64 = basic.kF
     kamp2::Float64 = basic.kF
-    θ12::Float64 = π
+    θ12::Float64 = π / 2
+
+    # Lowest non-zero Matsubara frequencies
+    iw0 = im * π / β  # fermionic
+    iv1 = im * 2π / β  # bosonic
 
     # R grid data is precomputed in an initialization step
     initialized::Bool = false
-    R::Matrix{Float64} = Matrix{Float64}(undef, length(qgrid), length(mgrid))
+    R::Matrix{Float64} = Matrix{Float64}(undef, length(qgrid_interp), length(mgrid))
 end
 
 function spline(x, y, e; xmin=0.0, xmax=x[end])
@@ -215,7 +231,7 @@ function get_analytic_F0p(param::OneLoopParams, rslist; plot=false)
     Fssclist = []
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
     y0_RPA_inf = [integrand_F0p(x, Inf) for x in xgrid]
-    F0p_RPA_inf = CompositeGrids.Interp.integrate1D(y0_RPA_inf, xgrid)
+    F0p_RPA_inf = Interp.integrate1D(y0_RPA_inf, xgrid)
     println("F⁺₀[W₀](∞) = $(F0p_RPA_inf)")
     for rs in rslist
         param_this_rs = Parameter.rydbergUnit(1.0 / beta, rs, dim)
@@ -227,11 +243,11 @@ function get_analytic_F0p(param::OneLoopParams, rslist; plot=false)
         end
         # RPA
         y_RPA = [integrand_F0p(x, rstilde) for x in xgrid]
-        val_RPA = CompositeGrids.Interp.integrate1D(y_RPA, xgrid)
+        val_RPA = Interp.integrate1D(y_RPA, xgrid)
         push!(F0p_RPA, val_RPA)
         # KO+
         y_R = [integrand_F0p(x, rstilde, Fs) for x in xgrid]
-        val_R = (Fs / 2) + CompositeGrids.Interp.integrate1D(y_R, xgrid)
+        val_R = (Fs / 2) + Interp.integrate1D(y_R, xgrid)
         push!(F0p_R, val_R)
         push!(Fslist, Fs)
         push!(Fssclist, Fs_sc)
@@ -268,7 +284,7 @@ function get_tree_level_self_consistent_Fs(param::OneLoopParams)
     function I0_R(x, y)
         ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
         integrand = [integrand_F0p(t, x * alpha_ueg / π, y) for t in ts]
-        integral = CompositeGrids.Interp.integrate1D(integrand, ts)
+        integral = Interp.integrate1D(integrand, ts)
         return integral
     end
     F0p_sc = find_zero(Fp -> I0_R(rs, Fp) - Fp / 2, (-20.0, 20.0))
@@ -333,7 +349,7 @@ function F1(param::OneLoopParams; int_type=:rpa)
         Fs = -get_Fs(param)
     end
     y = [integrand_F0p(x, rstilde, Fs) for x in xgrid]
-    F0p_tree_level = (Fs / 2) + CompositeGrids.Interp.integrate1D(y, xgrid)
+    F0p_tree_level = (Fs / 2) + Interp.integrate1D(y, xgrid)
     return F0p_tree_level
 end
 
@@ -362,19 +378,19 @@ function G0_data(
 end
 
 function R_data(param::OneLoopParams)
-    @unpack basic, qgrid, mgrid, Mmax, fs = param
-    Nq, Nw = length(qgrid), length(mgrid)
+    @unpack basic, qgrid_interp, mgrid, Mmax, fs = param
+    Nq, Nw = length(qgrid_interp), length(mgrid)
     R = zeros(Float64, (Nq, Nw))
     for (ni, n) in enumerate(mgrid)
-        for (qi, q) in enumerate(qgrid)
+        for (qi, q) in enumerate(qgrid_interp)
             invKOinstant = 1.0 / UEG.KOinstant(q, basic)
             # R = (vq + f) / (1 - (vq + f) Π0) - f
             Pi[qi, ni] = UEG.polarKW(q, n, basic)
             R[qi, ni] = 1 / (invKOinstant - Pi[qi, ni]) - fs
         end
     end
-    # upsample to full frequency grid with indices ranging from -N to N
-    R = matfreq2matfreq(dlr, R, collect((-Mmax):Mmax); axis=2)
+    # upsample to full frequency grid with indices ranging from 0 to M
+    R = matfreq2matfreq(dlr, R, collect(0:Mmax); axis=2)
     return real.(R)  # R(q, iνₘ) = R(q, -iνₘ) ⟹ R is real
 end
 
@@ -386,9 +402,9 @@ end
 """
 G₀(k, iωₙ)
 """
-function G0(param::OneLoopParams, k, wn)
+function G0(param::OneLoopParams, k, iwn)
     @unpack me, μ, β = param
-    return 1.0 / (im * wn - k^2 / (2 * me) + μ)
+    return 1.0 / (iwn - k^2 / (2 * me) + μ)
 end
 
 """
@@ -401,59 +417,125 @@ function R(param::OneLoopParams, q, n)
     if q ≤ param.Q_CUTOFF
         q = param.Q_CUTOFF
     end
-    return UEG.linear2D(param.R, param.qgrid, param.mgrid, q, n)
+    return UEG.linear2D(param.R, param.qgrid_interp, param.mgrid, q, n)
 end
 
-function vertex_matsubara_sum(param::OneLoopParams, q, θq, φq)
-    @unpack kF, β, EF, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax = param
+function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
+    @unpack β, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
 
     # p1 = |k + q'|, p2 = |k' + q'|
-    vec_p1 = [0.0, 0.0, kamp1] + q * [sin(θq) * cos(φq), sin(θq) * sin(φq), cos(θq)]
-    vec_p2 = [kamp2, 0.0, 0.0] + q * [sin(θq) * cos(φq), sin(θq) * sin(φq), cos(θq)]
+    vec_p1 = [0, 0, kamp1] + q * [sin(θ)cos(φ), sin(θ)sin(φ), cos(θ)]
+    vec_p2 = kamp2 * [sin(θ12), 0, cos(θ12)] + q * [sin(θ)cos(φ), sin(θ)sin(φ), cos(θ)]
     p1 = norm(vec_p1)
     p2 = norm(vec_p2)
 
     # S(iνₘ) = R(q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p2, iω₀ + iν'ₘ)
     s_ivm = Vector{ComplexF64}(undef, length(mgrid))
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
-        s_ivm[i] =
-            R(param, q, m) * G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm)
+        s_ivm[i] = G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm)
+        # R(param, q, m) * G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm)
     end
+    println(s_ivm)
 
     # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
-    s_ivm_full = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
+    summand = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
+    return summand
+end
 
+function vertex_matsubara_sum(param::OneLoopParams, q, θ, φ)
     # sum over iνₘ including negative frequency terms (S(iνₘ) = S(-iνₘ))
-    matsubara_sum = (s_ivm_full[0] + 2 * sum(s_ivm_full[2:end])) / β
+    summand = vertex_matsubara_summand(param, q, θ, φ)
+    matsubara_sum = (summand[0] + 2 * sum(summand[2:end])) / param.β
     return matsubara_sum
 end
 
-# 2RΛ₁
-function one_loop_vertex_corrections(param::OneLoopParams)
-
-    # integrate over loop momentum q
-    qs = [kF]
-    θqs = CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], 6, 1e-6, 6)
-    φqs = CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], 6, 1e-6, 6)
-    φq_integrand = Vector{Complex64}(undef, length(θqs.grid))
-    for (iq, q) in enumerate(qs)
-        for (iθq, θq) in enumerate(θqs)
-            for (iφq, φq) in enumerate(φqs)
-                res[iq, iθq, iφq] = vertex_matsubara_sum(param, q, θq, φq)
-            end
-        end
+function plot_vertex_matsubara_summand(param::OneLoopParams)
+    @unpack β, kF, EF, Mmax = param
+    coordinates = [
+        [2 * kF, 0, rand(0:2π)],  # q || k1 (equivalent to q || k2)
+        [2 * kF, π, rand(0:2π)],  # q || -k1 (equivalent to q || -k2)
+        [2 * kF, 3π / 4, π],      # q maximally spaced from (anti-bisects) k1 & k2
+        [2 * kF, π / 4, 0],       # q bisects k1 & k2
+        [2 * kF, π / 2, π / 2],   # q || y-axis
+        [2 * kF, 2π / 3, π / 3],  # general asymmetrically placed q #1
+    ]
+    labels = [
+        "\$q=2k_F, \\theta=0, \\varphi \\in [0, 2\\pi]\$",
+        "\$q=2k_F, \\theta=\\pi, \\varphi \\in [0, 2\\pi]\$",
+        "\$q=2k_F, \\theta=\\frac{3\\pi}{4}, \\varphi=\\pi\$",
+        "\$q=2k_F, \\theta=\\frac{\\pi}{4}, \\varphi=0\$",
+        "\$q=2k_F, \\theta=\\frac{\\pi}{2}, \\varphi=\\frac{\\pi}{2}\$",
+        "\$q=2k_F, \\theta=\\frac{2\\pi}{3}, \\varphi=\\frac{\\pi}{3}\$",
+    ]
+    # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+    fig, ax = plt.subplots(; figsize=(5, 5))
+    vms = (0:Mmax) * (2π / β)
+    for (i, (label, coord)) in enumerate(zip(labels, coordinates))
+        summand = vertex_matsubara_summand(param, coord...)
+        ax.plot(
+            vms / EF,
+            real(summand);
+            color=color[i],
+            label=label,
+            marker="o",
+            markersize=4,
+            markerfacecolor="none",
+        )
     end
+    ax.set_xlabel("\$i\\nu_m / \\epsilon_F\$")
+    ax.set_ylabel(
+        "\$S_\\mathbf{q}(i\\nu_m)\$",
+    )
+    # ax.set_ylabel("\$S^\\mathbf{q}_\\mathbf{k,k^\\prime}(i\\nu_m)\$")
+    ax.set_xlim(0, 4)
+    ax.legend(;
+        loc="best",
+        fontsize=14,
+        title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}\$",
+    )
+    # fig.tight_layout()
+    fig.savefig("vertex_matsubara_summand.pdf")
+    return
+end
 
-    one_loop_vertex_corrections = missing
+function plot_vertex_matsubara_sum(param::OneLoopParams)
+    # Plot vs θ for fixed q and several values of φ
+    fig, ax = plt.subplots()
+end
+
+# 2RΛ₁
+function one_loop_vertex_corrections(param::OneLoopParams; show_progress=true)
+    @unpack qgrid, Θgrid, φgrid = param
+    q_integrand = Vector{ComplexF64}(undef, length(qgrid.grid))
+    θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
+    φ_integrand = Vector{Complex64}(undef, length(φgrid.grid))
+    # integrate over loop momentum q
+    progress_meter = Progress(
+        length(qgrid.grid) * length(θgrid.grid) * length(φgrid.grid);
+        # desc="Progress (rank = 0): ",
+        output=stdout,
+        showspeed=true,
+        enabled=show_progress,
+    )
+    for (iq, q) in enumerate(qgrid)
+        for (iθ, θ) in enumerate(θgrid)
+            for (iφ, φ) in enumerate(φgrid)
+                φ_integrand[iφ] = vertex_matsubara_sum(param, q, θ, φ)
+                next!(progress_meter)
+            end
+            θ_integrand[iθ] = Interp.integrate1D(φ_integrand, φgrid)
+        end
+        q_integrand[iq] = Interp.integrate1D(θ_integrand .* cos.(θgrid.grid), θgrid)
+    end
+    finish!(progress_meter)
+    one_loop_vertex_corrections =
+        Interp.integrate1D(q_integrand .* qgrid.grid .* qgrid.grid, qgrid)
     return one_loop_vertex_corrections
 end
 
-function test_vertex_integral(param::Parameter.Para; args...)
-    vertex_integrand = one_loop_vertex_corrections(param; args...)
-    vertex_integrator = missing
-    result = missing
-    eval_time = missing
-    return result, eval_time
+function test_vertex_integral(param::OneLoopParams; show_progress=true)
+    result = @btimed one_loop_vertex_corrections(param; show_progress=show_progress)
+    return result
 end
 
 # linear interpolation with mixing parameter α: x * (1 - α) + y * α
@@ -461,7 +543,7 @@ function lerp(x, y, alpha)
     return (1 - alpha) * x + alpha * y
 end
 
-function get_one_loop_integrand(param::Parameter.Para; args...)
+function get_one_loop_integrand(param::OneLoopParams; args...)
     function one_loop_integrand(param; args...)
         return one_loop_vertex_corrections(param; args...) +
                one_loop_box_diagrams(param; args...) +
@@ -470,29 +552,24 @@ function get_one_loop_integrand(param::Parameter.Para; args...)
     return one_loop_integrand
 end
 
-function get_one_loop_Fs(param::Parameter.Para; args...)
+function get_one_loop_Fs(param::OneLoopParams; args...)
     integrand = get_one_loop_integrand(param; args...)
     F0p_ol = missing
     return F0p_ol
 end
 
 function main()
+    Fs = -0.0  # initial F+
     rs = 1.0
     beta = 40.0
-    param = Parameter.rydbergUnit(1.0 / beta, rs, 3)
+    # beta = 1000.0
+    param = OneLoopParams(; rs=rs, beta=beta, Fs=Fs)
 
-    @unpack kF, EF, β = param
+    plot_vertex_matsubara_summand(param)
+    return
 
-    # Get coarse grid data for R(q, iνₘ)
-    Rs = R_data(param, qgrid, mgrid)
-
-    res, time = test_vertex_integral(
-        param,
-        #  args...
-    )
-
-    println("Result: $res")
-    println("Evaluation time: $time")
+    btimed_result = test_vertex_integral(param)
+    println("Result: $btimed_result")
     return
 
     # # l=0 analytic plots
