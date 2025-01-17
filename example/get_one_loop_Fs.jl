@@ -10,6 +10,7 @@ using LsqFit
 using Lehmann
 using LQSGW
 using Parameters
+using ProgressMeter
 using PyCall
 using PyPlot
 using Roots
@@ -49,6 +50,7 @@ const color = [
     cdict["magenta"],
     cdict["red"],
     cdict["teal"],
+    cdict["grey"],
 ]
 rcParams = PyPlot.PyDict(PyPlot.matplotlib."rcParams")
 rcParams["font.size"] = 16
@@ -77,6 +79,15 @@ const MomGridType = CompositeGrids.CompositeG.Composite{
 const MGridType = CompositeGrids.SimpleG.Arbitrary{Int64,CompositeGrids.SimpleG.ClosedBound}
 const FreqGridType =
     CompositeGrids.SimpleG.Arbitrary{Float64,CompositeGrids.SimpleG.ClosedBound}
+const AngularGridType = CompositeGrids.CompositeG.Composite{
+    Float64,
+    CompositeGrids.SimpleG.Arbitrary{Float64,CompositeGrids.SimpleG.ClosedBound},
+    CompositeGrids.CompositeG.Composite{
+        Float64,
+        CompositeGrids.SimpleG.Log{Float64},
+        CompositeGrids.SimpleG.GaussLegendre{Float64},
+    },
+}
 
 @with_kw mutable struct OneLoopParams
     # UEG parameters
@@ -86,6 +97,7 @@ const FreqGridType =
     spin::Int = 2
     Fs::Float64 = -0.0
 
+    # mass2::Float64 = 1.0      # large Yukawa screening λ for testing
     mass2::Float64 = 1e-6     # fictitious Yukawa screening λ
     massratio::Float64 = 1.0  # mass ratio m*/m
 
@@ -118,12 +130,14 @@ const FreqGridType =
 
     # Sparse angular grids (~100 points each)
     # NOTE: EL.jl default is `Nk, order = 16, 32` (~1000 θ/φ-points)
-    θgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], 7, 1e-6, 7)
-    φgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], 7, 1e-6, 7)
+    # θgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], 16, 1e-6, 32)
+    # φgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], 16, 1e-6, 32)
+    θgrid::AngularGridType = CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], 5, 0.01, 5)
+    φgrid::AngularGridType = CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], 5, 0.01, 5)
 
     # Use a sparse DLR grid for the bosonic Matsubara summation (~30-50 iνₘ-points)
     dlr::DLRGrid{Float64,:ph} =
-        DLRGrid(; Euv=10 * EF, β=β, rtol=1e-10, isFermi=false, symmetry=:ph)
+        DLRGrid(; Euv=1000 * EF, β=β, rtol=1e-14, isFermi=false, symmetry=:ph)
     mgrid::MGridType = SimpleG.Arbitrary{Int64}(dlr.n)
     vmgrid::FreqGridType = SimpleG.Arbitrary{Float64}(dlr.ωn)
     Mmax::Int64 = maximum(mgrid)
@@ -378,20 +392,35 @@ function G0_data(
 end
 
 function R_data(param::OneLoopParams)
-    @unpack basic, qgrid_interp, mgrid, Mmax, fs = param
+    @unpack basic, qgrid_interp, mgrid, Mmax, dlr, fs = param
+    paramc = UEG.ParaMC(;
+        rs=param.rs,
+        beta=param.beta,
+        dim=param.dim,
+        spin=param.spin,
+        mass2=param.mass2,
+        Fs=param.Fs,
+        basic=basic,
+    )
     Nq, Nw = length(qgrid_interp), length(mgrid)
-    R = zeros(Float64, (Nq, Nw))
+    Pi = zeros(Float64, (Nq, Nw))
+    Rs = zeros(Float64, (Nq, Nw))
     for (ni, n) in enumerate(mgrid)
         for (qi, q) in enumerate(qgrid_interp)
-            invKOinstant = 1.0 / UEG.KOinstant(q, basic)
-            # R = (vq + f) / (1 - (vq + f) Π0) - f
-            Pi[qi, ni] = UEG.polarKW(q, n, basic)
-            R[qi, ni] = 1 / (invKOinstant - Pi[qi, ni]) - fs
+            KOinstant = UEG.KOinstant(q, paramc)
+            invKOinstant = 1.0 / KOinstant
+            # invKOinstant = 1.0 / UEG.KOinstant(q, paramc)
+            # Rs = (vq + f) / (1 - (vq + f) Π0) - f
+            Pi[qi, ni] = UEG.polarKW(q, n, paramc)
+            # Rs[qi, ni] =
+            #     invKOinstant / (invKOinstant - Pi[qi, ni]) - fs * invKOinstant
+            Rs[qi, ni] = 1 / (1 - KOinstant * Pi[qi, ni]) - fs * invKOinstant
+            # Rs[qi, ni] = 1 / (invKOinstant - Pi[qi, ni]) - fs
         end
     end
     # upsample to full frequency grid with indices ranging from 0 to M
-    R = matfreq2matfreq(dlr, R, collect(0:Mmax); axis=2)
-    return real.(R)  # R(q, iνₘ) = R(q, -iνₘ) ⟹ R is real
+    Rs = matfreq2matfreq(dlr, Rs, collect(0:Mmax); axis=2)
+    return real.(Rs)  # Rs(q, iνₘ) = Rs(q, -iνₘ) ⟹ Rs is real
 end
 
 function initialize_R!(param::OneLoopParams)
@@ -432,10 +461,30 @@ function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
     # S(iνₘ) = R(q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p2, iω₀ + iν'ₘ)
     s_ivm = Vector{ComplexF64}(undef, length(mgrid))
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
-        s_ivm[i] = G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm)
-        # R(param, q, m) * G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm)
+        # println(R(param, q, m))
+        s_ivm[i] =
+            R(param, q, m) * G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm) / β
     end
-    println(s_ivm)
+
+    # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
+    summand = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
+    return summand
+end
+
+function g1g2_pp_matsubara_summand(param::OneLoopParams, q, θ, φ)
+    @unpack β, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
+
+    # p1 = |k + q'|, p2 = |k' + q'|
+    vec_p1 = [0, 0, kamp1] + q * [sin(θ)cos(φ), sin(θ)sin(φ), cos(θ)]
+    vec_p2 = kamp2 * [sin(θ12), 0, cos(θ12)] + q * [sin(θ)cos(φ), sin(θ)sin(φ), cos(θ)]
+    p1 = norm(vec_p1)
+    p2 = norm(vec_p2)
+
+    # S(iνₘ) = g(p1, iω₀ + iν'ₘ) * g(p2, iω₀ + iν'ₘ)
+    s_ivm = Vector{ComplexF64}(undef, length(mgrid))
+    for (i, vm) in enumerate(vmgrid)
+        s_ivm[i] = G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm) / β
+    end
 
     # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
     summand = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
@@ -445,70 +494,175 @@ end
 function vertex_matsubara_sum(param::OneLoopParams, q, θ, φ)
     # sum over iνₘ including negative frequency terms (S(iνₘ) = S(-iνₘ))
     summand = vertex_matsubara_summand(param, q, θ, φ)
-    matsubara_sum = (summand[0] + 2 * sum(summand[2:end])) / param.β
+    matsubara_sum = summand[1] + 2 * sum(summand[2:end])
     return matsubara_sum
 end
 
-function plot_vertex_matsubara_summand(param::OneLoopParams)
-    @unpack β, kF, EF, Mmax = param
-    coordinates = [
-        [2 * kF, 0, rand(0:2π)],  # q || k1 (equivalent to q || k2)
-        [2 * kF, π, rand(0:2π)],  # q || -k1 (equivalent to q || -k2)
-        [2 * kF, 3π / 4, π],      # q maximally spaced from (anti-bisects) k1 & k2
-        [2 * kF, π / 4, 0],       # q bisects k1 & k2
-        [2 * kF, π / 2, π / 2],   # q || y-axis
-        [2 * kF, 2π / 3, π / 3],  # general asymmetrically placed q #1
-    ]
-    labels = [
-        "\$q=2k_F, \\theta=0, \\varphi \\in [0, 2\\pi]\$",
-        "\$q=2k_F, \\theta=\\pi, \\varphi \\in [0, 2\\pi]\$",
-        "\$q=2k_F, \\theta=\\frac{3\\pi}{4}, \\varphi=\\pi\$",
-        "\$q=2k_F, \\theta=\\frac{\\pi}{4}, \\varphi=0\$",
-        "\$q=2k_F, \\theta=\\frac{\\pi}{2}, \\varphi=\\frac{\\pi}{2}\$",
-        "\$q=2k_F, \\theta=\\frac{2\\pi}{3}, \\varphi=\\frac{\\pi}{3}\$",
-    ]
-    # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
-    fig, ax = plt.subplots(; figsize=(5, 5))
-    vms = (0:Mmax) * (2π / β)
-    for (i, (label, coord)) in enumerate(zip(labels, coordinates))
-        summand = vertex_matsubara_summand(param, coord...)
-        ax.plot(
-            vms / EF,
-            real(summand);
-            color=color[i],
-            label=label,
-            marker="o",
-            markersize=4,
-            markerfacecolor="none",
+function plot_g1g2_pp_matsubara_summand(param::OneLoopParams)
+    @unpack β, kF, EF, Mmax, Q_CUTOFF = param
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+        coordinates = [
+            [q, 0, rand(0:(2π))],  # q || k1 (equivalent to q || k2)
+            [q, π, rand(0:(2π))],  # q || -k1 (equivalent to q || -k2)
+            [q, 3π / 4, π],      # q maximally spaced from (anti-bisects) k1 & k2
+            [q, π / 4, 0],       # q bisects k1 & k2
+            [q, π / 2, π / 2],   # q || y-axis
+            [q, 2π / 3, π / 3],  # general asymmetrically placed q #1
+        ]
+        labels = [
+            "\$\\theta=0, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\pi, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\frac{3\\pi}{4}, \\varphi=\\pi\$",
+            "\$\\theta=\\frac{\\pi}{4}, \\varphi=0\$",
+            "\$\\theta=\\frac{\\pi}{2}, \\varphi=\\frac{\\pi}{2}\$",
+            "\$\\theta=\\frac{2\\pi}{3}, \\varphi=\\frac{\\pi}{3}\$",
+        ]
+        # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+        fig, ax = plt.subplots(; figsize=(5, 5))
+        vms = (0:Mmax) * (2π / β)
+        for (i, (label, coord)) in enumerate(zip(labels, coordinates))
+            summand = g1g2_pp_matsubara_summand(param, coord...)
+            ax.plot(
+                vms / EF,
+                real(summand);
+                color=color[i],
+                label=label,
+                marker="o",
+                markersize=4,
+                markerfacecolor="none",
+            )
+        end
+        ax.set_xlabel("\$i\\nu_m / \\epsilon_F\$")
+        ax.set_ylabel("\$S_\\mathbf{q}(i\\nu_m) = g(k_1 + q) g(k_2 + q)\$")
+        ax.set_xlim(0, 4)
+        ax.legend(;
+            loc="best",
+            fontsize=14,
+            title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
         )
+        fig.savefig("vertex_matsubara_summand_Gp1_Gp2_q=$qstr.pdf")
     end
-    ax.set_xlabel("\$i\\nu_m / \\epsilon_F\$")
-    ax.set_ylabel(
-        "\$S_\\mathbf{q}(i\\nu_m)\$",
-    )
-    # ax.set_ylabel("\$S^\\mathbf{q}_\\mathbf{k,k^\\prime}(i\\nu_m)\$")
-    ax.set_xlim(0, 4)
-    ax.legend(;
-        loc="best",
-        fontsize=14,
-        title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}\$",
-    )
-    # fig.tight_layout()
-    fig.savefig("vertex_matsubara_summand.pdf")
+    return
+end
+
+function plot_vertex_matsubara_summand(param::OneLoopParams)
+    @unpack β, kF, EF, Mmax, Q_CUTOFF = param
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+        coordinates = [
+            [q, 0, rand(0:(2π))],  # q || k1 (equivalent to q || k2)
+            [q, π, rand(0:(2π))],  # q || -k1 (equivalent to q || -k2)
+            [q, 3π / 4, π],      # q maximally spaced from (anti-bisects) k1 & k2
+            [q, π / 4, 0],       # q bisects k1 & k2
+            [q, π / 2, π / 2],   # q || y-axis
+            [q, 2π / 3, π / 3],  # general asymmetrically placed q #1
+        ]
+        labels = [
+            "\$\\theta=0, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\pi, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\frac{3\\pi}{4}, \\varphi=\\pi\$",
+            "\$\\theta=\\frac{\\pi}{4}, \\varphi=0\$",
+            "\$\\theta=\\frac{\\pi}{2}, \\varphi=\\frac{\\pi}{2}\$",
+            "\$\\theta=\\frac{2\\pi}{3}, \\varphi=\\frac{\\pi}{3}\$",
+        ]
+        # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+        fig, ax = plt.subplots(; figsize=(5, 5))
+        vms = (0:Mmax) * (2π / β)
+        for (i, (label, coord)) in enumerate(zip(labels, coordinates))
+            summand = vertex_matsubara_summand(param, coord...)
+            ax.plot(
+                vms / EF,
+                real(summand);
+                color=color[i],
+                label=label,
+                marker="o",
+                markersize=4,
+                markerfacecolor="none",
+            )
+        end
+        ax.set_xlabel("\$i\\nu_m / \\epsilon_F\$")
+        ax.set_ylabel("\$S_\\mathbf{q}(i\\nu_m) = R(q) g(k_1 + q) g(k_2 + q)\$")
+        # ax.set_ylabel("\$S^\\mathbf{q}_\\mathbf{k,k^\\prime}(i\\nu_m)\$")
+        ax.set_xlim(0, 4)
+        ax.legend(;
+            loc="best",
+            fontsize=14,
+            title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+        )
+        # fig.tight_layout()
+        fig.savefig("vertex_matsubara_summand_q=$qstr.pdf")
+    end
     return
 end
 
 function plot_vertex_matsubara_sum(param::OneLoopParams)
-    # Plot vs θ for fixed q and several values of φ
-    fig, ax = plt.subplots()
+    @unpack β, kF, EF, Mmax, Q_CUTOFF, θgrid = param
+    clabels = ["Re", "Im"]
+    cparts = [real, imag]
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (clabel, cpart) in zip(clabels, cparts)
+        for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+            phis = [0, π / 4, π / 2, 3π / 4, π]
+            labels = [
+                "\$\\varphi=0\$",
+                "\$\\varphi=\\frac{\\pi}{4}\$",
+                "\$\\varphi=\\frac{\\pi}{2}\$",
+                "\$\\varphi=\\frac{3\\pi}{4}\$",
+                "\$\\varphi=\\pi\$",
+            ]
+            # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+            fig, ax = plt.subplots(; figsize=(5, 5))
+            for (i, (label, φ)) in enumerate(zip(labels, phis))
+                matsubara_sum_vs_θ =
+                    [vertex_matsubara_sum(param, q, θ, φ) for θ in θgrid.grid]
+                ax.plot(
+                    θgrid.grid,
+                    cpart(matsubara_sum_vs_θ);
+                    color=color[i],
+                    label=label,
+                    # marker="o",
+                    # markersize=4,
+                    # markerfacecolor="none",
+                )
+            end
+            ax.set_xlabel("\$\\theta\$")
+            ax.set_ylabel("\$T \\sum_{i\\nu_m} R(q) g(k_1 + q) g(k_2 + q)\$")
+            # ax.set_ylabel("\$S_\\mathbf{q}(i\\nu_m)\$")
+            # ax.set_ylabel("\$S^\\mathbf{q}_\\mathbf{k,k^\\prime}(i\\nu_m)\$")
+            ax.set_xlim(0, π)
+            ax.set_xticks([0, π / 4, π / 2, 3π / 4, π])
+            ax.set_xticklabels([
+                "0",
+                "\$\\frac{\\pi}{4}\$",
+                "\$\\frac{\\pi}{2}\$",
+                "\$\\frac{3\\pi}{4}\$",
+                "\$\\pi\$",
+            ])
+            ax.legend(;
+                loc="best",
+                fontsize=14,
+                title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+                ncol=2,
+            )
+            # fig.tight_layout()
+            fig.savefig("$(clabel)_vertex_matsubara_sum_q=$(qstr).pdf")
+        end
+    end
 end
 
 # 2RΛ₁
 function one_loop_vertex_corrections(param::OneLoopParams; show_progress=true)
-    @unpack qgrid, Θgrid, φgrid = param
+    @unpack qgrid, θgrid, φgrid, basic = param
     q_integrand = Vector{ComplexF64}(undef, length(qgrid.grid))
     θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
-    φ_integrand = Vector{Complex64}(undef, length(φgrid.grid))
+    φ_integrand = Vector{ComplexF64}(undef, length(φgrid.grid))
     # integrate over loop momentum q
     progress_meter = Progress(
         length(qgrid.grid) * length(θgrid.grid) * length(φgrid.grid);
@@ -525,16 +679,26 @@ function one_loop_vertex_corrections(param::OneLoopParams; show_progress=true)
             end
             θ_integrand[iθ] = Interp.integrate1D(φ_integrand, φgrid)
         end
-        q_integrand[iq] = Interp.integrate1D(θ_integrand .* cos.(θgrid.grid), θgrid)
+        q_integrand[iq] = Interp.integrate1D(θ_integrand .* sin.(θgrid.grid), θgrid)
     end
     finish!(progress_meter)
-    one_loop_vertex_corrections =
-        Interp.integrate1D(q_integrand .* qgrid.grid .* qgrid.grid, qgrid)
-    return one_loop_vertex_corrections
+    paramc = UEG.ParaMC(;
+        rs=param.rs,
+        beta=param.beta,
+        dim=param.dim,
+        spin=param.spin,
+        mass2=param.mass2,
+        Fs=param.Fs,
+        basic=basic,
+    )
+    rq = [UEG.KOinstant(q, paramc) for q in qgrid.grid]
+    vertex_integrand = q_integrand .* rq .* qgrid.grid .* qgrid.grid / (2π)^3
+    result = Interp.integrate1D(vertex_integrand, qgrid)
+    return result
 end
 
 function test_vertex_integral(param::OneLoopParams; show_progress=true)
-    result = @btimed one_loop_vertex_corrections(param; show_progress=show_progress)
+    result = one_loop_vertex_corrections(param; show_progress=show_progress)
     return result
 end
 
@@ -562,14 +726,13 @@ function main()
     Fs = -0.0  # initial F+
     rs = 1.0
     beta = 40.0
-    # beta = 1000.0
     param = OneLoopParams(; rs=rs, beta=beta, Fs=Fs)
 
-    plot_vertex_matsubara_summand(param)
-    return
+    # Precompute the interaction R(q, iνₘ)
+    initialize_R!(param)
 
-    btimed_result = test_vertex_integral(param)
-    println("Result: $btimed_result")
+    result = test_vertex_integral(param)
+    println("Result: $result")
     return
 
     # # l=0 analytic plots
