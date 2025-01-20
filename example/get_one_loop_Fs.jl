@@ -169,8 +169,8 @@ end
 Get the symmetric l=0 Fermi-liquid parameter F⁰ₛ via Corradini's fit
 to the DMC compressibility enhancement [doi: 10.1103/PhysRevB.57.14569].
 """
-@inline function get_Fs(param::OneLoopParams)
-    kappa0_over_kappa = Interaction.compressibility_enhancement(param.basic)
+@inline function get_Fs(basic_param::Parameter.Para)
+    kappa0_over_kappa = Interaction.compressibility_enhancement(basic_param)
     # NOTE: NEFT uses opposite sign convention for F!
     # -F⁰ₛ = 1 - κ₀/κ
     return 1.0 - kappa0_over_kappa
@@ -187,7 +187,7 @@ function lindhard(x)
     return 0.5 + ((1 - x^2) / (4 * x)) * log(abs((1 + x) / (1 - x)))
 end
 
-function integrand_F0p(x, rs_tilde, Fs=0.0)
+function integrand_F1(x, rs_tilde, Fs=0.0)
     if isinf(rs_tilde)
         return -x / lindhard(x)
     end
@@ -196,7 +196,7 @@ function integrand_F0p(x, rs_tilde, Fs=0.0)
     return -x * NF_times_Rp_ex
 end
 
-function plot_integrand_F0p(param::OneLoopParams)
+function plot_integrand_F1(param::OneLoopParams)
     @unpack beta, dim = param
     rslist = [0, 1, 5, 10, 20, Inf]
     colorlist = [
@@ -223,7 +223,7 @@ function plot_integrand_F0p(param::OneLoopParams)
                 rsstr = rs == Inf ? "\\infty" : string(Int(rs))
                 label = "\$r_s = $rsstr\$"
             end
-            y = [integrand_F0p(xi, rs * alpha_ueg / π, Fs) for xi in x]
+            y = [integrand_F1(xi, rs * alpha_ueg / π, Fs) for xi in x]
             ax.plot(x, y; linestyle=linestyle, color=color, label=label)
         end
     end
@@ -233,20 +233,20 @@ function plot_integrand_F0p(param::OneLoopParams)
     xlim(0, 1)
     ylim(-2.125, 1.125)
     # tight_layout()
-    fig.savefig("integrand_F0p.pdf")
+    fig.savefig("integrand_F1.pdf")
     plt.close("all")
 end
 
-function get_analytic_F0p(param::OneLoopParams, rslist; plot=false)
+function get_analytic_F1(param::OneLoopParams, rslist; plot=false)
     @unpack beta, dim = param
-    F0p_RPA = []
-    F0p_R = []
+    F1_RPA = []
+    F1_R = []
     Fslist = []
     Fssclist = []
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
-    y0_RPA_inf = [integrand_F0p(x, Inf) for x in xgrid]
-    F0p_RPA_inf = Interp.integrate1D(y0_RPA_inf, xgrid)
-    println("F⁺₀[W₀](∞) = $(F0p_RPA_inf)")
+    y0_RPA_inf = [integrand_F1(x, Inf) for x in xgrid]
+    F1_RPA_inf = Interp.integrate1D(y0_RPA_inf, xgrid)
+    println("F⁺₀[W₀](∞) = $(F1_RPA_inf)")
     for rs in rslist
         param_this_rs = Parameter.rydbergUnit(1.0 / beta, rs, dim)
         rstilde = rs * alpha_ueg / π
@@ -256,20 +256,20 @@ function get_analytic_F0p(param::OneLoopParams, rslist; plot=false)
             @assert Fs ≤ 0 "Incorrect sign for Fs!"
         end
         # RPA
-        y_RPA = [integrand_F0p(x, rstilde) for x in xgrid]
+        y_RPA = [integrand_F1(x, rstilde) for x in xgrid]
         val_RPA = Interp.integrate1D(y_RPA, xgrid)
-        push!(F0p_RPA, val_RPA)
+        push!(F1_RPA, val_RPA)
         # KO+
-        y_R = [integrand_F0p(x, rstilde, Fs) for x in xgrid]
+        y_R = [integrand_F1(x, rstilde, Fs) for x in xgrid]
         val_R = (Fs / 2) + Interp.integrate1D(y_R, xgrid)
-        push!(F0p_R, val_R)
+        push!(F1_R, val_R)
         push!(Fslist, Fs)
         push!(Fssclist, Fs_sc)
     end
     if plot
         fig, ax = plt.subplots()
-        ax.plot(rslist, F0p_RPA; color=cdict["red"], label="\$W_0\$")
-        ax.plot(rslist, F0p_R; color=cdict["blue"], label="\$R\$")
+        ax.plot(rslist, F1_RPA; color=cdict["red"], label="\$W_0\$")
+        ax.plot(rslist, F1_R; color=cdict["blue"], label="\$R\$")
         ax.plot(rslist, Fssclist; color=cdict["teal"], label="\$F^+_\\text{tl-sc}\$")
         ax.plot(
             rslist,
@@ -284,10 +284,10 @@ function get_analytic_F0p(param::OneLoopParams, rslist; plot=false)
         ylim(-1.6, 0.3)
         ax.legend(; fontsize=10, loc="best")
         # tight_layout()
-        fig.savefig("analytic_F0p.pdf")
+        fig.savefig("analytic_F1.pdf")
         plt.close("all")
     end
-    return F0p_RPA, F0p_R
+    return F1_RPA, F1_R
 end
 
 """
@@ -297,39 +297,34 @@ function get_tree_level_self_consistent_Fs(param::OneLoopParams)
     @unpack rs = param
     function I0_R(x, y)
         ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
-        integrand = [integrand_F0p(t, x * alpha_ueg / π, y) for t in ts]
+        integrand = [integrand_F1(t, x * alpha_ueg / π, y) for t in ts]
         integral = Interp.integrate1D(integrand, ts)
         return integral
     end
-    F0p_sc = find_zero(Fp -> I0_R(rs, Fp) - Fp / 2, (-20.0, 20.0))
-    return F0p_sc
+    F1_sc = find_zero(Fp -> I0_R(rs, Fp) - Fp / 2, (-20.0, 20.0))
+    return F1_sc
 end
 
 """
 The one-loop (GW) self-energy Σ₁.
 """
-function Σ1(
-    param::OneLoopParams,
-    kgrid::KGT;
-    Fs=-0.0,
-    int_type=:rpa,
-) where {KGT<:AbstractGrid}
-    @unpack kF, EF = param
+function Σ1(param::OneLoopParams, kgrid::KGT) where {KGT<:AbstractVector}
+    @unpack kF, EF, Fs, basic = param
     # DLR parameters
     Euv = 1000 * EF
     rtol = 1e-14
     # Based on ElectronGas.jl defaults for G0W0 self-energy (here, minK *= 100)
     maxK = 6 * kF
     minK = 1e-6 * kF
-    # Get the One-loop self-energy
-    sigma = Sigma.G0W0(
-        param.basic,
+    # Get the one-loop self-energy
+    sigma = SelfEnergy.G0W0(
+        basic,
         kgrid;
         Euv=Euv,
         rtol=rtol,
         maxK=maxK,
         minK=minK,
-        int_type=int_type,
+        int_type=:ko_const,
         Fs=Fs,
         Fa=-0.0,
     )
@@ -339,32 +334,48 @@ end
 """
 Leading-order (one-loop) correction to Z_F.
 """
-function Z1(
-    param::OneLoopParams,
-    kgrid::KGT;
-    Fs=-0.0,
-    int_type=:rpa,
-) where {KGT<:AbstractGrid}
-    sigma1 = Σ1(param.basic, kgrid; Fs=Fs, int_type=int_type)
-    # Z_F using improved finite-temperature scaling
-    return zfactor_fermi(param.basic, sigma1)
+function Z1(param::OneLoopParams, kgrid::KGT) where {KGT<:AbstractVector}
+    sigma1 = Σ1(param, kgrid)
+    return zfactor_fermi(param.basic, sigma1)  # compute Z_F using improved finite-temperature scaling
 end
 
 """
-Tree-level estimate of F⁺₀.
+Tree-level estimate of F⁺₀ ~ ⟨R(k - k', 0)⟩.
 """
-function F1(param::OneLoopParams; int_type=:rpa)
-    @unpack rs, kF, EF, NF = param
+function F1(param::OneLoopParams)
+    @unpack rs, kF, EF, NF, Fs, basic = param
     rstilde = rs * alpha_ueg / π
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
-    if int_type == :rpa
-        Fs = 0.0
-    else
-        Fs = -get_Fs(param)
+    y = [integrand_F1(x, rstilde, Fs) for x in xgrid]
+    F1 = (Fs / 2) + Interp.integrate1D(y, xgrid)
+    return F1
+end
+
+function integrand_F1(x, rs_tilde, Fs=0.0)
+    if isinf(rs_tilde)
+        return -x / lindhard(x)
     end
-    y = [integrand_F0p(x, rstilde, Fs) for x in xgrid]
-    F0p_tree_level = (Fs / 2) + Interp.integrate1D(y, xgrid)
-    return F0p_tree_level
+    coeff = rs_tilde + Fs * x^2
+    NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x))
+    return -x * NF_times_Rp_ex
+end
+
+function one_loop_counterterms(param::OneLoopParams)
+    @unpack rs, kF, EF, NF, Fs, basic = param
+    rstilde = rs * alpha_ueg / π
+    xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+    
+    integrand_f1 = [integrand_F1(x, rstilde, Fs) for x in xgrid]
+    f1 = (Fs / 2) + Interp.integrate1D(integrand_f1, xgrid)  # NF * ⟨R⟩
+    z1 = Z1(param, 2 * kF * xgrid)  # Z_1(kF)
+    
+    Π0 = -NF * lindhard.(xgrid)         # Π₀(q, iν=0) = -NF * 𝓁(q / 2kF)
+    Π0_avg = Interp.integrate1D(-xgrid * NF * Π0, xgrid)  # -(NF / 2) * ⟨Π₀(k - k')⟩ = -NF ∫₀¹ dx x Π₀(x)
+
+    # R_Π0_avg = 
+    # vertex_cts = 
+
+    return
 end
 
 function Π0_static(param::OneLoopParams, qgrid::QGT) where {QGT<:AbstractGrid}
@@ -391,6 +402,10 @@ function G0_data(
     return g0
 end
 
+"""
+Regularized KO interaction δR(q, iνₘ) = R(q, iνₘ) / r_q, where r_q = v_q + f.
+"""
+
 function R_data(param::OneLoopParams)
     @unpack basic, qgrid_interp, mgrid, Mmax, dlr, fs = param
     paramc = UEG.ParaMC(;
@@ -412,9 +427,9 @@ function R_data(param::OneLoopParams)
             # invKOinstant = 1.0 / UEG.KOinstant(q, paramc)
             # Rs = (vq + f) / (1 - (vq + f) Π0) - f
             Pi[qi, ni] = UEG.polarKW(q, n, paramc)
+            Rs[qi, ni] = 1 / (1 - KOinstant * Pi[qi, ni]) - fs * invKOinstant
             # Rs[qi, ni] =
             #     invKOinstant / (invKOinstant - Pi[qi, ni]) - fs * invKOinstant
-            Rs[qi, ni] = 1 / (1 - KOinstant * Pi[qi, ni]) - fs * invKOinstant
             # Rs[qi, ni] = 1 / (invKOinstant - Pi[qi, ni]) - fs
         end
     end
@@ -423,7 +438,7 @@ function R_data(param::OneLoopParams)
     return real.(Rs)  # Rs(q, iνₘ) = Rs(q, -iνₘ) ⟹ Rs is real
 end
 
-function initialize_R!(param::OneLoopParams)
+function initialize_one_loop_params!(param::OneLoopParams)
     param.R = R_data(param)
     param.initialized = true
 end
@@ -471,6 +486,28 @@ function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
     return summand
 end
 
+function box_matsubara_summand(param::OneLoopParams, q, θ, φ)
+    @unpack β, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
+
+    # p1 = |k + q'|, p2 = |k' + q'|
+    vec_p1 = [0, 0, kamp1] + q * [sin(θ)cos(φ), sin(θ)sin(φ), cos(θ)]
+    vec_p2 = kamp2 * [sin(θ12), 0, cos(θ12)] + q * [sin(θ)cos(φ), sin(θ)sin(φ), cos(θ)]
+    p1 = norm(vec_p1)
+    p2 = norm(vec_p2)
+
+    # S(iνₘ) = R(q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p2, iω₀ + iν'ₘ)
+    s_ivm = Vector{ComplexF64}(undef, length(mgrid))
+    for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
+        # println(R(param, q, m))
+        s_ivm[i] =
+            R(param, q, m) * G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm) / β
+    end
+
+    # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
+    summand = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
+    return summand
+end
+
 function g1g2_pp_matsubara_summand(param::OneLoopParams, q, θ, φ)
     @unpack β, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
 
@@ -494,6 +531,13 @@ end
 function vertex_matsubara_sum(param::OneLoopParams, q, θ, φ)
     # sum over iνₘ including negative frequency terms (S(iνₘ) = S(-iνₘ))
     summand = vertex_matsubara_summand(param, q, θ, φ)
+    matsubara_sum = summand[1] + 2 * sum(summand[2:end])
+    return matsubara_sum
+end
+
+function box_matsubara_sum(param::OneLoopParams, q, θ, φ)
+    # sum over iνₘ including negative frequency terms (S(iνₘ) = S(-iνₘ))
+    summand = box_matsubara_summand(param, q, θ, φ)
     matsubara_sum = summand[1] + 2 * sum(summand[2:end])
     return matsubara_sum
 end
@@ -692,13 +736,63 @@ function one_loop_vertex_corrections(param::OneLoopParams; show_progress=true)
         basic=basic,
     )
     rq = [UEG.KOinstant(q, paramc) for q in qgrid.grid]
-    vertex_integrand = q_integrand .* rq .* qgrid.grid .* qgrid.grid / (2π)^3
+    vertex_integrand = q_integrand .* rq .* qgrid.grid .* qgrid.grid * param.NF / (2π)^3
     result = Interp.integrate1D(vertex_integrand, qgrid)
+    return result
+end
+
+# gg'RR' + exchange counterpart
+function one_loop_box_diagrams(param::OneLoopParams; show_progress=true)
+    @unpack qgrid, θgrid, φgrid, basic = param
+    q_integrand = Vector{ComplexF64}(undef, length(qgrid.grid))
+    θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
+    φ_integrand = Vector{ComplexF64}(undef, length(φgrid.grid))
+    # integrate over loop momentum q
+    progress_meter = Progress(
+        length(qgrid.grid) * length(θgrid.grid) * length(φgrid.grid);
+        # desc="Progress (rank = 0): ",
+        output=stdout,
+        showspeed=true,
+        enabled=show_progress,
+    )
+    for (iq, q) in enumerate(qgrid)
+        for (iθ, θ) in enumerate(θgrid)
+            for (iφ, φ) in enumerate(φgrid)
+                φ_integrand[iφ] = box_matsubara_sum(param, q, θ, φ)
+                next!(progress_meter)
+            end
+            θ_integrand[iθ] = Interp.integrate1D(φ_integrand, φgrid)
+        end
+        q_integrand[iq] = Interp.integrate1D(θ_integrand .* sin.(θgrid.grid), θgrid)
+    end
+    finish!(progress_meter)
+    paramc = UEG.ParaMC(;
+        rs=param.rs,
+        beta=param.beta,
+        dim=param.dim,
+        spin=param.spin,
+        mass2=param.mass2,
+        Fs=param.Fs,
+        basic=basic,
+    )
+    rq = [UEG.KOinstant(q, paramc) for q in qgrid.grid]
+    box_integrand = q_integrand .* rq .* qgrid.grid .* qgrid.grid * param.NF / (2π)^3
+    result = Interp.integrate1D(box_integrand, qgrid)
+    return result
+end
+
+# 2R(z1 - f1 Π0) - f1 Π0 f1
+function one_loop_counterterms(param::OneLoopParams; show_progress=true)
     return result
 end
 
 function test_vertex_integral(param::OneLoopParams; show_progress=true)
     result = one_loop_vertex_corrections(param; show_progress=show_progress)
+    return result
+end
+
+function test_box_integral(param::OneLoopParams; show_progress=true)
+    result = one_loop_box_diagrams(param; show_progress=show_progress)
     return result
 end
 
@@ -718,28 +812,42 @@ end
 
 function get_one_loop_Fs(param::OneLoopParams; args...)
     integrand = get_one_loop_integrand(param; args...)
-    F0p_ol = missing
-    return F0p_ol
+    F2 = missing
+    return F2
 end
 
 function main()
-    Fs = -0.0  # initial F+
     rs = 1.0
     beta = 40.0
-    param = OneLoopParams(; rs=rs, beta=beta, Fs=Fs)
+
+    # RPA
+    param_rpa = OneLoopParams(; rs=rs, beta=beta)
+
+    # KO+
+    Fs = -get_Fs(param_rpa.basic)
+    param_kop = OneLoopParams(; rs=rs, beta=beta, Fs=Fs)
+
+    plot_vertex_matsubara_summand(param_rpa)
+    plot_vertex_matsubara_sum(param_rpa)
 
     # Precompute the interaction R(q, iνₘ)
-    initialize_R!(param)
+    initialize_one_loop_params!(param_rpa)
+    initialize_one_loop_params!(param_kop)
 
-    result = test_vertex_integral(param)
-    println("Result: $result")
+    result_rpa = test_vertex_integral(param_rpa)
+    result_kop = test_vertex_integral(param_kop)
+    println("One-loop vertex part:\n(RPA) $result_rpa\n(KO+) $result_kop")
+
+    # result_rpa = test_box_integral(param_rpa)
+    # result_kop = test_box_integral(param_kop)
+    # println("One-loop box part:\n(RPA) $result_rpa\n(KO+) $result_kop")
     return
 
     # # l=0 analytic plots
     # rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
     # rslist = sort(unique([0.01; 0.025; 0.05; rs_Fsm1; collect(range(0.1, 10.0; step=0.1))]))
-    # plot_integrand_F0p(param)
-    # get_analytic_F0p(param, rslist; plot=true)
+    # plot_integrand_F1(param)
+    # get_analytic_F1(param, rslist; plot=true)
     # return
 
     # # Dimensionless angular momentum grid for k - k'
