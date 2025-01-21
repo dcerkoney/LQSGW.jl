@@ -903,6 +903,24 @@ function plot_F2v_convergence_vs_nk(; rs=1.0, beta=40.0, verbose=true)
     ax.legend(; loc="best", fontsize=14)
     # fig.tight_layout()
     fig.savefig("F2_vs_nk_rs=$(rs)_beta=$(beta).pdf")
+
+    # RPA convergence plot of F2 vs nk
+    fig, ax = plt.subplots()
+    ax.plot(nks, F2s_rpa; label="RPA", marker="o", markersize=4, markerfacecolor="none")
+    ax.set_xlabel("\$N_k\$")
+    ax.set_ylabel("\$F^\\text{v}_2(\\theta_{12} = \\pi / 2)\$")
+    ax.legend(; loc="best", fontsize=14)
+    # fig.tight_layout()
+    fig.savefig("F2_vs_nk_rs=$(rs)_beta=$(beta)_rpa.pdf")
+    
+    # KO+ convergence plot of F2 vs nk
+    fig, ax = plt.subplots()
+    ax.plot(nks, F2s_kop; label="KO+", marker="o", markersize=4, markerfacecolor="none")
+    ax.set_xlabel("\$N_k\$")
+    ax.set_ylabel("\$F^\\text{v}_2(\\theta_{12} = \\pi / 2)\$")
+    ax.legend(; loc="best", fontsize=14)
+    # fig.tight_layout()
+    fig.savefig("F2_vs_nk_rs=$(rs)_beta=$(beta)_kop.pdf")
     return
 end
 
