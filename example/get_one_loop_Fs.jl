@@ -98,7 +98,7 @@ const AngularGridType = CompositeGrids.CompositeG.Composite{
     Fs::Float64 = -0.0
 
     # mass2::Float64 = 1.0      # large Yukawa screening λ for testing
-    mass2::Float64 = 1e-6     # fictitious Yukawa screening λ
+    mass2::Float64 = 1e-5     # fictitious Yukawa screening λ
     massratio::Float64 = 1.0  # mass ratio m*/m
 
     basic::Parameter.Para = Parameter.rydbergUnit(1.0 / beta, rs, dim; Λs=mass2, spin=spin)
@@ -127,6 +127,9 @@ const AngularGridType = CompositeGrids.CompositeG.Composite{
     Na::Int = 8
     Oa::Int = 7
 
+    euv::Float64 = 10.0
+    rtol::Float64 = 1e-7
+
     # We precompute δR(q, iνₘ) on a mesh of ~100 k-points
     # NOTE: EL.jl default is `Nk, Ok = 16, 16` (~700 k-points)
     qgrid_interp::MomInterpGridType =
@@ -143,15 +146,17 @@ const AngularGridType = CompositeGrids.CompositeG.Composite{
     # θgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], 16, 1e-6, 32)
     # φgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], 16, 1e-6, 32)
     θgrid::AngularGridType =
-        CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], Na, 1e-6, Oa)
+        CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], Na, 0.01, Oa)
+    # CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], Na, 1e-6, Oa)
     # CompositeGrid.LogDensedGrid(:gauss, [0.0, π], [0.0, π], 16, 1e-6, 16)
     φgrid::AngularGridType =
-        CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], Na, 1e-6, Oa)
+        CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], Na, 0.01, Oa)
+    # CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], Na, 1e-6, Oa)
     # CompositeGrid.LogDensedGrid(:gauss, [0.0, 2π], [0.0, 2π], 16, 1e-6, 16)
 
     # Use a sparse DLR grid for the bosonic Matsubara summation (~30-50 iνₘ-points)
     dlr::DLRGrid{Float64,:ph} =
-        DLRGrid(; Euv=100 * EF, β=β, rtol=1e-10, isFermi=false, symmetry=:ph)
+        DLRGrid(; Euv=euv * EF, β=β, rtol=rtol, isFermi=false, symmetry=:ph)
     mgrid::MGridType = SimpleG.Arbitrary{Int64}(dlr.n)
     vmgrid::FreqGridType = SimpleG.Arbitrary{Float64}(dlr.ωn)
     Mmax::Int64 = maximum(mgrid)
@@ -216,7 +221,7 @@ function NF_times_R_static(param::OneLoopParams, q)
     x = q / (2 * kF)
     rs_tilde = rs * alpha_ueg / π
     if isinf(rs_tilde)
-        return -x / lindhard(x)
+        return x / lindhard(x)
     end
     coeff = rs_tilde + Fs * x^2
     NF_times_R_static_exact = coeff / (x^2 + coeff * lindhard(x)) - Fs
@@ -555,7 +560,7 @@ function dR(param::OneLoopParams, q, n)
 end
 
 function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
-    @unpack β, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
+    @unpack β, NF, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
 
     # p1 = |k + q'|, p2 = |k' + q'|
     k1vec = [0, 0, kamp1]
@@ -571,7 +576,11 @@ function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
         # println(dR(param, q, m))
         s_ivm[i] = (
-            R(param, q, m) * G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm) / β
+            q^2 *
+            NF *
+            R(param, q, m) *
+            G0(param, p1, iw0 + im * vm) *
+            G0(param, p2, iw0 + im * vm) / β
         )
     end
 
@@ -599,6 +608,8 @@ function box_matsubara_summand(param::OneLoopParams, q, θ, φ)
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
         # println(dR(param, q, m))
         s_ivm[i] = (
+            q^2 *
+            NF^2 *
             R(param, q, m) *
             R(param, qex, m) *
             G0(param, p1, iw0 + im * vm) *
@@ -623,7 +634,7 @@ function g1g2_pp_matsubara_summand(param::OneLoopParams, q, θ, φ)
     # S(iνₘ) = g(p1, iω₀ + iν'ₘ) * g(p2, iω₀ + iν'ₘ)
     s_ivm = Vector{ComplexF64}(undef, length(mgrid))
     for (i, vm) in enumerate(vmgrid)
-        s_ivm[i] = G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm) / β
+        s_ivm[i] = q^2 * G0(param, p1, iw0 + im * vm) * G0(param, p2, iw0 + im * vm) / β
     end
 
     # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
@@ -744,7 +755,8 @@ function plot_vertex_matsubara_summand(param::OneLoopParams)
             title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
         )
         # fig.tight_layout()
-        fig.savefig("vertex_matsubara_summand_q=$qstr.pdf")
+        kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+        fig.savefig("vertex_matsubara_summand_q=$(qstr)_$(kindstr).pdf")
     end
     return
 end
@@ -802,7 +814,8 @@ function plot_vertex_matsubara_sum(param::OneLoopParams)
                 ncol=2,
             )
             # fig.tight_layout()
-            fig.savefig("$(clabel)_vertex_matsubara_sum_q=$(qstr).pdf")
+            kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+            fig.savefig("$(clabel)_vertex_matsubara_sum_q=$(qstr)_$(kindstr).pdf")
         end
     end
 end
@@ -833,32 +846,19 @@ function one_loop_vertex_corrections(param::OneLoopParams; show_progress=true)
         q_integrand[iq] = Interp.integrate1D(θ_integrand .* sin.(θgrid.grid), θgrid)
     end
     finish!(progress_meter)
-    vertex_integrand = q_integrand .* qgrid.grid .* qgrid.grid / (2π)^3
+    # total integrand ~ NF / 2, left + right insertions ⟹ no factor of 2
+    vertex_integrand = q_integrand / (2π)^3
 
-    # N_F R(2kF x), where x = |k - k'| / 2kF
-    v = cos(θ12)
-    x = sqrt((1 - v) / 2.0)  # 
-    rs_tilde = rs * alpha_ueg / π
-    NF_R = NF_times_R_static(param, 2 * kF * x)
-
-    result = Interp.integrate1D(vertex_integrand, qgrid) * NF_R
-    println(NF_R)
-    println(result)
-
-    v = cos(θ12)
-    x = sqrt((1 - v) / 2.0)  # 
-    NF_R = R(param, 2 * kF * x, 0) * NF
-
-    result = Interp.integrate1D(vertex_integrand, qgrid) * NF_R
-    println(NF_R)
-    println(result)
+    # Fᵥ(θ₁₂) = Λ₁(θ₁₂) R(|k₁ - k₂|, 0)
+    k_m_kp = kF * sqrt(2 * (1 - cos(θ12)))
+    result = Interp.integrate1D(vertex_integrand, qgrid) * R(param, k_m_kp, 0)
     return result
 end
 
 # gg'RR' + exchange counterpart
 function one_loop_box_diagrams(param::OneLoopParams; show_progress=true)
     @assert param.initialized "δR(q, iνₘ) data not yet initialized!"
-    @unpack qgrid, θgrid, φgrid, basic, paramc = param
+    @unpack NF, qgrid, θgrid, φgrid, basic, paramc = param
     q_integrand = Vector{ComplexF64}(undef, length(qgrid.grid))
     θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
     φ_integrand = Vector{ComplexF64}(undef, length(φgrid.grid))
@@ -881,8 +881,8 @@ function one_loop_box_diagrams(param::OneLoopParams; show_progress=true)
         q_integrand[iq] = Interp.integrate1D(θ_integrand .* sin.(θgrid.grid), θgrid)
     end
     finish!(progress_meter)
-    rq = [UEG.KOinstant(q, paramc) for q in qgrid.grid]
-    box_integrand = q_integrand .* qgrid.grid .* qgrid.grid * param.NF / (2π)^3
+    # total integrand ~ NF / 2
+    box_integrand = q_integrand / (NF * 2 * (2π)^3)
     result = Interp.integrate1D(box_integrand, qgrid)
     return result
 end
@@ -917,30 +917,34 @@ function get_one_loop_Fs(param::OneLoopParams; kwargs...)
     return F2
 end
 
-function plot_F2v_convergence_vs_nk(; rs=1.0, beta=40.0, verbose=true)
+function plot_F2v_convergence_vs_nk(; rs=1.0, beta=40.0, verbose=true, plot_extras=false)
     NOk_pairs = [
-        # (3, 4),  # Nq ≈ 25
-        (4, 4),  # Nq ≈ 30
+        (3, 4),  # Nq ≈ 25
+        (3, 5),  # Nq ≈ 30
         (5, 4),  # Nq ≈ 50
-        (5, 5),  # 
         (6, 5),  # Nq ≈ 75
-        (6, 6),  # 
         (7, 6),  # Nq ≈ 100
-        (9, 9),  
+        (8, 6),  # Nq ≈ 125
+        (11, 5),  # Nq ≈ 150
+        (11, 6),  # Nq ≈ 175
+        (12, 6),  # Nq ≈ 200
     ]
     NOa_pairs = [
-        # (4, 4),  # Nθ = Nϕ ≈ 25
-        (5, 4),  # Nθ = Nϕ ≈ 30
-        (6, 5),  # Nθ = Nϕ ≈ 50
-        (6, 6),  # 
-        (7, 6),  # Nθ = Nϕ ≈ 75
-        (7, 7),  # 
-        (8, 7),  # Nθ = Nϕ ≈ 100
-        (10, 10),  
+        (4, 4),    # Nθ = Nϕ ≈ 25
+        (4, 5),    # Nθ = Nϕ ≈ 30
+        (6, 5),    # Nθ = Nϕ ≈ 50
+        (7, 6),    # Nθ = Nϕ ≈ 75
+        (8, 7),    # Nθ = Nϕ ≈ 100
+        (8, 9),    # Nθ = Nϕ ≈ 125
+        (12, 7),    # Nθ = Nϕ ≈ 150
+        (9, 11),    # Nθ = Nϕ ≈ 175
+        (11, 10),  # Nθ = Nϕ ≈ 200
     ]
     nks = []
     F2s_rpa = []
     F2s_kop = []
+
+    local param_rpa, param_kop
     for ((Nk, Ok), (Na, Oa)) in zip(NOk_pairs, NOa_pairs)
         # RPA
         param_rpa = OneLoopParams(; rs=rs, beta=beta, Nk=Nk, Ok=Ok, Na=Na, Oa=Oa)
@@ -962,13 +966,24 @@ function plot_F2v_convergence_vs_nk(; rs=1.0, beta=40.0, verbose=true)
         F1_rpa = F1(param_rpa)
         F1_kop = F1(param_kop)
         F2_rpa = test_vertex_integral(param_rpa)
-        verbose && println("(RPA) $(F1_rpa) ξ + $F2_rpa ξ²")
+        verbose && println("(RPA) ($(F1_rpa))ξ + ($(F2_rpa))ξ²")
         F2_kop = test_vertex_integral(param_kop)
-        verbose && println("(KO+) $(F1_kop) ξ + $(F2_kop) ξ²")
+        verbose && println("(KO+) ($(F1_kop))ξ + ($(F2_kop))ξ²")
 
         push!(nks, nk)
         push!(F2s_rpa, F2_rpa)
         push!(F2s_kop, F2_kop)
+    end
+    if plot_extras
+        # Plot sum and summand for the densest grid
+        plot_vertex_matsubara_summand(param_rpa)
+        plot_vertex_matsubara_sum(param_rpa)
+        plot_vertex_matsubara_summand(param_kop)
+        plot_vertex_matsubara_sum(param_kop)
+        # Plot of R and W0 together
+        plot_R_and_W0(param_rpa, param_kop)
+        # Plot static interactions
+        plot_NF_times_R_and_W0_static()
     end
 
     # Convergence plot of F2 vs nk
@@ -991,7 +1006,11 @@ function plot_F2v_convergence_vs_nk(; rs=1.0, beta=40.0, verbose=true)
     )
     ax.set_xlabel("\$N_k\$")
     ax.set_ylabel("\$F^\\text{v}_2(\\theta_{12} = \\pi / 2)\$")
-    ax.legend(; loc="best", fontsize=14)
+    ax.legend(;
+        loc="best",
+        fontsize=14,
+        title="\$r_s = $(Int(round(rs)))\$, \$\\beta = $(Int(round(beta)))\$",
+    )
     # fig.tight_layout()
     fig.savefig("F2_vs_nk_rs=$(rs)_beta=$(beta).pdf")
 
@@ -1007,7 +1026,11 @@ function plot_F2v_convergence_vs_nk(; rs=1.0, beta=40.0, verbose=true)
     )
     ax.set_xlabel("\$N_k\$")
     ax.set_ylabel("\$F^\\text{v}_2(\\theta_{12} = \\pi / 2)\$")
-    ax.legend(; loc="best", fontsize=14)
+    ax.legend(;
+        loc="lower right",
+        fontsize=14,
+        title="\$r_s = $(Int(round(rs)))\$, \$\\beta = $(Int(round(beta)))\$",
+    )
     # fig.tight_layout()
     fig.savefig("F2_vs_nk_rs=$(rs)_beta=$(beta)_rpa.pdf")
 
@@ -1023,7 +1046,11 @@ function plot_F2v_convergence_vs_nk(; rs=1.0, beta=40.0, verbose=true)
     )
     ax.set_xlabel("\$N_k\$")
     ax.set_ylabel("\$F^\\text{v}_2(\\theta_{12} = \\pi / 2)\$")
-    ax.legend(; loc="best", fontsize=14)
+    ax.legend(;
+        loc="lower right",
+        fontsize=14,
+        title="\$r_s = $(Int(round(rs)))\$, \$\\beta = $(Int(round(beta)))\$",
+    )
     # fig.tight_layout()
     fig.savefig("F2_vs_nk_rs=$(rs)_beta=$(beta)_kop.pdf")
     return
@@ -1041,6 +1068,8 @@ function check_sign_Fs(param::OneLoopParams)
 end
 
 function plot_R_and_W0(param_rpa::OneLoopParams, param_kop::OneLoopParams)
+    @assert param_rpa.initialized "δW₀(q, iνₘ) data not yet initialized!"
+    @assert param_kop.initialized "δR(q, iνₘ) data not yet initialized!"
     fig, ax = plt.subplots()
     labels = ["\$W_0\$", "\$R\$"]
     params = [param_rpa, param_kop]
@@ -1061,9 +1090,14 @@ function plot_R_and_W0(param_rpa::OneLoopParams, param_kop::OneLoopParams)
     end
     xlabel("\$q / k_F\$")
     ylabel("\$\\mathcal{N}_F W(q, i\\nu_m = 0)\$")
-    ax.legend(; loc="best", fontsize=10)
+    ax.legend(;
+        loc="best",
+        fontsize=10,
+        title="\$r_s = $(Int(round(param_rpa.rs)))\$",
+        ncol=2,
+    )
     fig.tight_layout()
-    fig.savefig("NF_times_R_and_W0_comparison.pdf")
+    fig.savefig("NF_times_R_and_W0_comparison_rs=$(param_rpa.rs).pdf")
     plt.close("all")
 end
 
@@ -1138,38 +1172,224 @@ function plot_dR(param::OneLoopParams)
     plt.close("all")
 end
 
+function plot_NF_times_R_and_W0_static(; beta=40.0, verbose=false)
+    intnnames = ["w_0", "r"]
+    intnstrs = ["w0", "r"]
+    ylims = [(-0.2, 3), (-10, 20)]
+    for (i, (intnname, intnstr, ylim)) in enumerate(zip(intnnames, intnstrs, ylims))
+        fig, ax = plt.subplots()
+        rslist = [0.01, 0.1, 1.0, 5.0, 10.0, 25.0]
+        labels = [
+            "\$r_s = \\frac{1}{100}\$",
+            "\$r_s = \\frac{1}{10}\$",
+            "\$r_s = 1\$",
+            "\$r_s = 5\$",
+            "\$r_s = 10\$",
+            "\$r_s = 25\$",
+        ]
+        for (j, (rs, label)) in enumerate(zip(rslist, labels))
+            basic = Parameter.rydbergUnit(1.0 / beta, rs, 3)
+            if i == 1
+                Fs = 0.0
+            else
+                Fs = -get_Fs(basic)
+            end
+            if verbose
+                println("Fs = $Fs")
+                println("r(q->0, 0) = 1 - Fs = $(1 - Fs)")
+            end
+            param = OneLoopParams(; rs=rs, beta=beta, Fs=Fs)
+            @unpack kF, NF = param
+            qlist = LinRange(1e-6 * kF, 6 * kF, 400)
+            ax.plot(
+                qlist / kF,
+                NF_times_R_static.([param], qlist);
+                label=label,
+                color=color[j + 1],
+            )
+        end
+        ax.set_xlabel("\$q / k_F\$")
+        ax.set_ylabel("\$$(intnname)(q, i\\nu_m = 0)\$")
+        ax.set_xlim(0, 6)
+        ax.set_ylim(ylim...)
+        ax.legend(; loc="upper right", fontsize=10, ncol=2)
+        fig.savefig("$(intnstr)_static.pdf")
+    end
+end
+
+function testdlr(rs, euv, rtol; rpa=false, verbose=false)
+    verbose && println("(rs = $rs) Testing DLR grid with Euv / EF = $euv, rtol = $rtol")
+    param = Parameter.rydbergUnit(1.0 / 40.0, rs, 3)
+    @unpack β, kF, EF, NF = param
+    if rpa
+        Fs = 0.0
+        fs = 0.0
+    else
+        Fs = -get_Fs(param)
+        fs = Fs / NF
+    end
+    paramc = ParaMC(; rs=rs, beta=40.0, dim=3, Fs=Fs)
+
+    qgrid_interp = CompositeGrid.LogDensedGrid(
+        :uniform,
+        [0.0, 6 * kF],
+        [0.0, 2 * kF],
+        16,
+        0.01 * kF,
+        16,
+    )
+
+    dlr = DLRGrid(; Euv=euv * EF, β=β, rtol=rtol, isFermi=false, symmetry=:ph)
+    mgrid = SimpleG.Arbitrary{Int64}(dlr.n)
+    Mmax = maximum(mgrid)
+
+    println("Nw = $(length(dlr.n)), Mmax = $Mmax")
+
+    Nq, Nw = length(qgrid_interp), length(mgrid)
+    Pi = zeros(Float64, (Nq, Nw))
+    Rs = zeros(Float64, (Nq, Nw))
+    for (ni, n) in enumerate(mgrid)
+        for (qi, q) in enumerate(qgrid_interp)
+            rq = UEG.KOinstant(q, paramc)
+            invrq = 1.0 / rq
+            # Rq = (vq + f) / (1 - (vq + f) Π0) - f
+            Pi[qi, ni] = UEG.polarKW(q, n, paramc)
+            Rs[qi, ni] = 1 / (invrq - Pi[qi, ni]) - fs
+        end
+    end
+    # upsample to full frequency grid with indices ranging from 0 to M
+    Rs = matfreq2matfreq(dlr, Rs, collect(0:Mmax); axis=2)
+    return Rs, qgrid_interp, paramc
+end
+
+function plot_R_static_small_q(rs, euv)
+    for (isrpa, intnstr, intnname) in zip([false, true], ["R", "W0"], ["R", "W_0"])
+        local param
+        fig, ax = plt.subplots()
+        log_rtols = reverse([-7.0, -8.0, -9.0, -10.0, -11.0])
+        colors = reverse(color)
+        for (i, (log_rtol, color)) in enumerate(zip(log_rtols, color))
+            Rs, qgrid, param = testdlr(rs, euv, 10^log_rtol; rpa=isrpa)
+            ax.plot(
+                qgrid / param.kF,
+                Rs[:, 1] * param.NF;
+                label="\$\\epsilon = 10^{$(Int(round(log_rtol)))}\$",
+                color=color,
+            )
+        end
+        if rs == 1
+            delta = 0.001
+            xlim = 0.03
+        elseif rs == 10
+            delta = 0.001
+            xlim = 0.15
+        end
+        if isrpa
+            q0_limit = 1
+        else
+            q0_limit = 1 - param.Fs
+        end
+        ylim = q0_limit .+ [-delta, delta]
+        ax.set_xlim(0, xlim)
+        ax.set_ylim(ylim...)
+        ax.set_xlabel("\$q / k_F\$")
+        ax.set_ylabel("\$\\mathcal{N}_F $(intnname)(q, i\\nu_m = 0)\$")
+        ax.legend(;
+            loc="upper right",
+            fontsize=10,
+            title="\$r_s = $(Int(round(rs))), \\Lambda_{\\text{uv}} = $(Int(round(euv)))\\epsilon_F\$",
+            title_fontsize=12,
+            ncol=1,
+        )
+        fig.savefig("$(intnstr)_static_small_q_rs=$(rs)_euv=$(euv).pdf")
+    end
+end
+
+function plot_R_static_small_q(rs, euv, rtol)
+    log_rtol = log10(rtol)
+    for (isrpa, intnstr, intnname) in zip([false, true], ["R", "W0"], ["R", "W_0"])
+        local param
+        fig, ax = plt.subplots()
+        Rs, qgrid, param = testdlr(rs, euv, rtol; rpa=isrpa)
+        ax.plot(
+            qgrid / param.kF,
+            Rs[:, 1] * param.NF;
+            label="\$\\epsilon = 10^{$(Int(round(log_rtol)))}\$",
+            color=cdict["blue"],
+        )
+        if rs == 1
+            delta = 0.001
+            xlim = 0.03
+        elseif rs == 10
+            delta = 0.001
+            xlim = 0.15
+        end
+        if isrpa
+            q0_limit = 1
+        else
+            q0_limit = 1 - param.Fs
+        end
+        ylim = q0_limit .+ [-delta, delta]
+        ax.set_xlim(0, xlim)
+        ax.set_ylim(ylim...)
+        ax.set_xlabel("\$q / k_F\$")
+        ax.set_ylabel("\$\\mathcal{N}_F $(intnname)(q, i\\nu_m = 0)\$")
+        ax.legend(;
+            loc="upper right",
+            fontsize=10,
+            title="\$r_s = $(Int(round(rs))), \\Lambda_{\\text{uv}} = $(Int(round(euv)))\\epsilon_F\$",
+            title_fontsize=12,
+            ncol=1,
+        )
+        fig.savefig("$(intnstr)_static_small_q_rs=$(rs)_euv=$(euv)_rtol=$(rtol).pdf")
+    end
+end
+
 function main()
     rs = 10.0
     beta = 40.0
     verbose = true
 
-    plot_F2v_convergence_vs_nk(; rs=rs, beta=beta, verbose=true)
-    return
+    # nk ≈ 100
+    Nk, Ok = 12, 6
+    Na, Oa = 11, 10
 
-    # # nk ≈ 50
-    # Nk, Ok = 5, 4
-    # Na, Oa = 6, 5
+    # DLR parameters for which R(q, 0) is smooth in the q → 0 limit (tested for rs = 1, 10)
+    euv = 10.0
+    rtol = 1e-7
+    testdlr(rs, euv, rtol; verbose=true)
 
-    # # nk ≈ 100
-    # Nk, Ok = 7, 6
-    # Na, Oa = 8, 7
+    # Check the quality of the DLR interpolation for R(q → 0, 0) at this Euv and rtol
+    plot_R_static_small_q(rs, euv, rtol)
+
+    # # Check the quality of the DLR interpolation for R(q → 0, 0) vs rtol at this Euv
+    # plot_R_static_vs_rtol_small_q(rs, euv)
 
     # RPA
-    param_rpa = OneLoopParams(; rs=rs, beta=beta, Nk=Nk, Ok=Ok, Na=Na, Oa=Oa)
+    param_rpa =
+        OneLoopParams(; rs=rs, beta=beta, euv=euv, rtol=rtol, Nk=Nk, Ok=Ok, Na=Na, Oa=Oa)
 
     # ~ -2 when rs=10, -0.95 when rs=5, and -0.17 when rs=1
     Fs = -get_Fs(param_rpa.basic)
 
-    # Fs = -1.0
-
     # KO+
-    param_kop = OneLoopParams(; rs=rs, beta=beta, Fs=Fs, Nk=Nk, Ok=Ok, Na=Na, Oa=Oa)
+    param_kop = OneLoopParams(;
+        rs=rs,
+        beta=beta,
+        euv=euv,
+        rtol=rtol,
+        Fs=Fs,
+        Nk=Nk,
+        Ok=Ok,
+        Na=Na,
+        Oa=Oa,
+    )
     check_sign_Fs(param_kop)
 
     # Total number of momentum  amplitude and angular grid points
     nq = length(param_rpa.qgrid)
     nt = length(param_rpa.θgrid)
-    np = length(param_rpa.θgrid)
+    np = length(param_rpa.φgrid)
     println("nq = $nq, nt = $nt, np = $np")
 
     # Precompute the interaction δR(q, iνₘ)
@@ -1178,13 +1398,16 @@ function main()
 
     plot_vertex_matsubara_summand(param_rpa)
     plot_vertex_matsubara_sum(param_rpa)
-
-    # Plots of the total effective interaction R = r δR = (v + f) δR
-    plot_R(param_rpa)
-    plot_R(param_kop)
+    plot_vertex_matsubara_summand(param_kop)
+    plot_vertex_matsubara_sum(param_kop)
 
     # Plot of R and W0 together
     plot_R_and_W0(param_rpa, param_kop)
+
+    # Plot dimensionless static interactions
+    plot_NF_times_R_and_W0_static()
+
+    # plot_F2v_convergence_vs_nk(; rs=rs, beta=beta, verbose=true)
 
     println("(nq = $nq) One-loop vertex part:")
     F1_rpa = F1(param_rpa)
@@ -1196,6 +1419,7 @@ function main()
     F2_kop = test_vertex_integral(param_kop)
     println("(KO+) $(F1_kop) ξ + $(F2_kop) ξ²")
 
+    println("F+ from DMC: $(Fs)")
     # result_rpa = test_box_integral(param_rpa)
     # result_kop = test_box_integral(param_kop)
     # println("One-loop box part:\n(RPA) $result_rpa\n(KO+) $result_kop")
