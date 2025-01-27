@@ -1,4 +1,3 @@
-using BenchmarkTools
 using Colors
 using CompositeGrids
 using ElectronGas
@@ -9,11 +8,14 @@ using LinearAlgebra
 using LsqFit
 using Lehmann
 using LQSGW
+using MPI
 using Parameters
 using ProgressMeter
 using PyCall
 using PyPlot
 using Roots
+
+import LQSGW: split_count, println_root, timed_result_to_string
 
 @pyimport numpy as np   # for saving/loading numpy data
 @pyimport scienceplots  # for style "science"
@@ -121,13 +123,15 @@ const AngularGridType = CompositeGrids.CompositeG.Composite{
     maxQ::Float64 = 6 * kF
     Q_CUTOFF::Float64 = 1e-10 * kF
 
+    # nk ≈ 75 is sufficiently converged for all relevant euv/rtol
     Nk::Int = 7
     Ok::Int = 6
 
+    # na ≈ 75 is sufficiently converged for all relevant euv/rtol
     Na::Int = 8
     Oa::Int = 7
 
-    euv::Float64 = 10.0
+    euv::Float64 = 1000.0
     rtol::Float64 = 1e-7
 
     # We precompute δR(q, iνₘ) on a mesh of ~100 k-points
@@ -214,8 +218,9 @@ function integrand_F1(x, rs_tilde, Fs=0.0)
         return -x / lindhard(x)
     end
     coeff = rs_tilde + Fs * x^2
-    NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x))
-    return -x * NF_times_Rp_ex
+    # NF (R + f)
+    NF_times_Rpf_ex = coeff / (x^2 + coeff * lindhard(x))
+    return -x * NF_times_Rpf_ex
 end
 
 function NF_times_R_static(param::OneLoopParams, q)
@@ -351,7 +356,7 @@ function Σ1(param::OneLoopParams, kgrid::KGT) where {KGT<:AbstractVector}
     maxK = 6 * kF
     minK = 1e-6 * kF
     # Get the one-loop self-energy
-    sigma = SelfEnergy.G0W0(
+    Σ_imtime, _ = SelfEnergy.G0W0(
         basic,
         kgrid;
         Euv=Euv,
@@ -362,7 +367,9 @@ function Σ1(param::OneLoopParams, kgrid::KGT) where {KGT<:AbstractVector}
         Fs=Fs,
         Fa=-0.0,
     )
-    return sigma
+    # Σ_dyn(τ, k) → Σ_dyn(iωₙ, k)
+    Σ = to_imfreq(to_dlr(Σ_imtime))
+    return Σ
 end
 
 """
@@ -385,13 +392,16 @@ function F1(param::OneLoopParams)
     return F1
 end
 
-function integrand_F1(x, rs_tilde, Fs=0.0)
+function x_NF_R0(x, rs_tilde, Fs=0.0)
     if isinf(rs_tilde)
-        return -x / lindhard(x)
+        return x / lindhard(x)
     end
     coeff = rs_tilde + Fs * x^2
-    NF_times_Rp_ex = coeff / (x^2 + coeff * lindhard(x))
-    return -x * NF_times_Rp_ex
+    # NF (R + f)
+    NF_times_Rpf_ex = coeff / (x^2 + coeff * lindhard(x))
+    # NF R = NF (R + f) - Fs
+    NF_times_Rp_ex = NF_times_Rpf_ex - Fs
+    return x * NF_times_Rp_ex
 end
 
 # 2R(z1 - f1 Π0) - f1 Π0 f1
@@ -405,7 +415,7 @@ function one_loop_counterterms(param::OneLoopParams; kwargs...)
     F1 = (Fs / 2) + Interp.integrate1D(integrand, xgrid)  # NF * ⟨R⟩
 
     # x R(2kF x, 0)
-    x_R0 = x_NF_R0 / NF
+    x_R0 = [x_NF_R0(x, rstilde, Fs) / NF for x in xgrid]
 
     # Z_1(kF)
     z1 = Z1(param, 2 * kF * xgrid)
@@ -413,14 +423,14 @@ function one_loop_counterterms(param::OneLoopParams; kwargs...)
     # Π₀(q, iν=0) = -NF * 𝓁(q / 2kF)
     Π0 = -NF * lindhard.(xgrid)
 
-    # α = z₁ + 2 ∫₀¹ dx x R(x, 0) Π₀(x, 0)
-    alpha = z1 + Interp.integrate1D(2 * x_R0 .* Π0, xgrid)
+    # A = z₁ + 2 ∫₀¹ dx x R(x, 0) Π₀(x, 0)
+    A = z1 + Interp.integrate1D(2 * x_R0 .* Π0, xgrid)
 
-    # β = ∫₀¹ dx x Π₀(x, 0) / NF
-    beta = Interp.integrate1D(xgrid .* Π0 / NF, xgrid)
+    # B = ∫₀¹ dx x Π₀(x, 0) / NF
+    B = Interp.integrate1D(xgrid .* Π0 / NF, xgrid)
 
-    # 2R(z1 - f1 Π0) - f1 Π0 f1 = 2 F1 α + F1² β
-    vertex_cts = 2 * F1 * alpha + F1^2 * beta
+    # 2R(z1 - f1 Π0) - f1 Π0 f1 = 2 F1 A + F1² B
+    vertex_cts = 2 * F1 * A + F1^2 * B
     return vertex_cts
 end
 
@@ -592,7 +602,7 @@ function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
 end
 
 function box_matsubara_summand(param::OneLoopParams, q, θ, φ)
-    @unpack β, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
+    @unpack β, NF, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
 
     # p1 = |k + q'|, p2 = |k' - q'|, qex = |k - k' + q'|
     k1vec = [0, 0, kamp1]
@@ -659,7 +669,7 @@ function box_matsubara_sum(param::OneLoopParams, q, θ, φ)
 end
 
 function plot_g1g2_pp_matsubara_summand(param::OneLoopParams)
-    @assert param.initialized "δR(q, iνₘ) data not yet initialized!"
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
     @unpack β, kF, EF, Mmax, Q_CUTOFF = param
     plot_qs = [Q_CUTOFF, kF, 2 * kF]
     plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
@@ -710,7 +720,7 @@ function plot_g1g2_pp_matsubara_summand(param::OneLoopParams)
 end
 
 function plot_vertex_matsubara_summand(param::OneLoopParams)
-    @assert param.initialized "δR(q, iνₘ) data not yet initialized!"
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
     @unpack β, kF, EF, Mmax, Q_CUTOFF = param
     plot_qs = [Q_CUTOFF, kF, 2 * kF]
     plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
@@ -749,7 +759,6 @@ function plot_vertex_matsubara_summand(param::OneLoopParams)
         end
         ax.set_xlabel("\$i\\nu_m / \\epsilon_F\$")
         ax.set_ylabel("\$S^\\text{v}_\\mathbf{q}(i\\nu_m)\$")
-        # ax.set_ylabel("\$S^\\mathbf{q}_\\mathbf{k,k^\\prime}(i\\nu_m)\$")
         ax.set_xlim(0, 4)
         ax.legend(;
             loc="best",
@@ -764,7 +773,7 @@ function plot_vertex_matsubara_summand(param::OneLoopParams)
 end
 
 function plot_vertex_matsubara_sum(param::OneLoopParams)
-    @assert param.initialized "δR(q, iνₘ) data not yet initialized!"
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
     @unpack β, kF, EF, Mmax, Q_CUTOFF, θgrid = param
     clabels = ["Re", "Im"]
     cparts = [real, imag]
@@ -798,8 +807,6 @@ function plot_vertex_matsubara_sum(param::OneLoopParams)
             end
             ax.set_xlabel("\$\\theta\$")
             ax.set_ylabel("\$S_\\text{v}(q, \\theta, \\phi; \\theta_{12} = \\pi / 2)\$")
-            # ax.set_ylabel("\$S_\\mathbf{q}(i\\nu_m)\$")
-            # ax.set_ylabel("\$S^\\mathbf{q}_\\mathbf{k,k^\\prime}(i\\nu_m)\$")
             ax.set_xlim(0, π)
             ax.set_xticks([0, π / 4, π / 2, 3π / 4, π])
             ax.set_xticklabels([
@@ -822,80 +829,281 @@ function plot_vertex_matsubara_sum(param::OneLoopParams)
     end
 end
 
+function plot_box_matsubara_summand(param::OneLoopParams)
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @unpack β, kF, EF, Mmax, Q_CUTOFF = param
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+        coordinates = [
+            [q, 0, rand(0:(2π))],  # q || k1 (equivalent to q || k2)
+            [q, π, rand(0:(2π))],  # q || -k1 (equivalent to q || -k2)
+            [q, 3π / 4, π],      # q maximally spaced from (anti-bisects) k1 & k2
+            [q, π / 4, 0],       # q bisects k1 & k2
+            [q, π / 2, π / 2],   # q || y-axis
+            [q, 2π / 3, π / 3],  # general asymmetrically placed q #1
+        ]
+        labels = [
+            "\$\\theta=0, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\pi, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\frac{3\\pi}{4}, \\varphi=\\pi\$",
+            "\$\\theta=\\frac{\\pi}{4}, \\varphi=0\$",
+            "\$\\theta=\\frac{\\pi}{2}, \\varphi=\\frac{\\pi}{2}\$",
+            "\$\\theta=\\frac{2\\pi}{3}, \\varphi=\\frac{\\pi}{3}\$",
+        ]
+        # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+        fig, ax = plt.subplots(; figsize=(5, 5))
+        vms = (0:Mmax) * (2π / β)
+        for (i, (label, coord)) in enumerate(zip(labels, coordinates))
+            summand = box_matsubara_summand(param, coord...)
+            ax.plot(
+                vms / EF,
+                real(summand);
+                color=color[i],
+                label=label,
+                marker="o",
+                markersize=4,
+                markerfacecolor="none",
+            )
+        end
+        ax.set_xlabel("\$i\\nu_m / \\epsilon_F\$")
+        ax.set_ylabel("\$S^\\text{b}_\\mathbf{q}(i\\nu_m)\$")
+        ax.set_xlim(0, 4)
+        ax.legend(;
+            loc="best",
+            fontsize=14,
+            title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+        )
+        # fig.tight_layout()
+        kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+        fig.savefig("box_matsubara_summand_q=$(qstr)_$(kindstr).pdf")
+    end
+    return
+end
+
+function plot_box_matsubara_sum(param::OneLoopParams)
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @unpack β, kF, EF, Mmax, Q_CUTOFF, θgrid = param
+    clabels = ["Re", "Im"]
+    cparts = [real, imag]
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (clabel, cpart) in zip(clabels, cparts)
+        for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+            phis = [0, π / 4, π / 2, 3π / 4, π]
+            labels = [
+                "\$\\varphi=0\$",
+                "\$\\varphi=\\frac{\\pi}{4}\$",
+                "\$\\varphi=\\frac{\\pi}{2}\$",
+                "\$\\varphi=\\frac{3\\pi}{4}\$",
+                "\$\\varphi=\\pi\$",
+            ]
+            # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+            fig, ax = plt.subplots(; figsize=(5, 5))
+            for (i, (label, φ)) in enumerate(zip(labels, phis))
+                matsubara_sum_vs_θ = [box_matsubara_sum(param, q, θ, φ) for θ in θgrid.grid]
+                ax.plot(
+                    θgrid.grid,
+                    cpart(matsubara_sum_vs_θ);
+                    color=color[i],
+                    label=label,
+                    # marker="o",
+                    # markersize=4,
+                    # markerfacecolor="none",
+                )
+            end
+            ax.set_xlabel("\$\\theta\$")
+            ax.set_ylabel("\$S_\\text{b}(q, \\theta, \\phi; \\theta_{12} = \\pi / 2)\$")
+            ax.set_xlim(0, π)
+            ax.set_xticks([0, π / 4, π / 2, 3π / 4, π])
+            ax.set_xticklabels([
+                "0",
+                "\$\\frac{\\pi}{4}\$",
+                "\$\\frac{\\pi}{2}\$",
+                "\$\\frac{3\\pi}{4}\$",
+                "\$\\pi\$",
+            ])
+            ax.legend(;
+                loc="best",
+                fontsize=14,
+                title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+                ncol=2,
+            )
+            # fig.tight_layout()
+            kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+            fig.savefig("$(clabel)_box_matsubara_sum_q=$(qstr)_$(kindstr).pdf")
+        end
+    end
+end
+
+function plot_counterterms(param::OneLoopParams)
+    # ...
+end
+
 # 2RΛ₁
 function one_loop_vertex_corrections(param::OneLoopParams; show_progress=true)
-    @assert param.initialized "δR(q, iνₘ) data not yet initialized!"
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    MPI.Init()
+    root = 0
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    comm_size = MPI.Comm_size(comm)
+
     @unpack qgrid, θgrid, φgrid, θ12, rs, Fs, kF, NF, basic, paramc = param
-    q_integrand = Vector{ComplexF64}(undef, length(qgrid.grid))
-    θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
-    φ_integrand = Vector{ComplexF64}(undef, length(φgrid.grid))
-    # integrate over loop momentum q
+
+    # Initialize vertex integrand
+    Nq = length(qgrid.grid)
+    q_integrand = zeros(ComplexF64, Nq)
+
+    # Setup buffers for scatter/gather
+    counts = split_count(Nq, comm_size)  # number of values per rank
+    data_vbuffer = VBuffer(q_integrand, counts)
+    if rank == root
+        length_ubuf = UBuffer(counts, 1)
+        # For global indices
+        qi_vbuffer = VBuffer(collect(1:Nq), counts)
+    else
+        length_ubuf = UBuffer(nothing)
+        qi_vbuffer = VBuffer(nothing)
+    end
+
+    # Scatter the data to all ranks
+    local_length = MPI.Scatter(length_ubuf, Int, root, comm)
+    local_qi = MPI.Scatterv!(qi_vbuffer, zeros(Int, local_length), root, comm)
+    local_data = MPI.Scatterv!(data_vbuffer, zeros(ComplexF64, local_length), root, comm)
+
+    # Compute the integrand over loop momentum magnitude q in parallel
     progress_meter = Progress(
-        length(qgrid.grid) * length(θgrid.grid) * length(φgrid.grid);
-        # desc="Progress (rank = 0): ",
+        local_length;
+        desc="Progress (rank = 0): ",
         output=stdout,
         showspeed=true,
-        enabled=show_progress,
+        enabled=show_progress && rank == root,
     )
-    for (iq, q) in enumerate(qgrid)
+    θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
+    φ_integrand = Vector{ComplexF64}(undef, length(φgrid.grid))
+    for (i, qi) in enumerate(local_qi)
+        # println("rank = $rank: Integrating (q, 0) point $i/$local_length")
+        # Get external frequency and momentum at this index
+        q = qgrid.grid[qi]
         for (iθ, θ) in enumerate(θgrid)
             for (iφ, φ) in enumerate(φgrid)
                 φ_integrand[iφ] = vertex_matsubara_sum(param, q, θ, φ)
-                next!(progress_meter)
             end
             θ_integrand[iθ] = Interp.integrate1D(φ_integrand, φgrid)
         end
-        q_integrand[iq] = Interp.integrate1D(θ_integrand .* sin.(θgrid.grid), θgrid)
+        local_data[i] = Interp.integrate1D(θ_integrand .* sin.(θgrid.grid), θgrid)
+        next!(progress_meter)
     end
     finish!(progress_meter)
+
+    # Collect q_integrand subresults from all ranks
+    MPI.Allgatherv!(local_data, data_vbuffer, comm)
+
     # total integrand ~ NF / 2, left + right insertions ⟹ no factor of 2
     vertex_integrand = q_integrand / (2π)^3
 
-    # Fᵥ(θ₁₂) = Λ₁(θ₁₂) R(|k₁ - k₂|, 0)
+    # Integrate over q
     k_m_kp = kF * sqrt(2 * (1 - cos(θ12)))
+    # Fᵥ(θ₁₂) = Λ₁(θ₁₂) R(|k₁ - k₂|, 0)
     result = Interp.integrate1D(vertex_integrand, qgrid) * R(param, k_m_kp, 0)
     return result
 end
 
 # gg'RR' + exchange counterpart
 function one_loop_box_diagrams(param::OneLoopParams; show_progress=true)
-    @assert param.initialized "δR(q, iνₘ) data not yet initialized!"
-    @unpack NF, qgrid, θgrid, φgrid, basic, paramc = param
-    q_integrand = Vector{ComplexF64}(undef, length(qgrid.grid))
-    θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
-    φ_integrand = Vector{ComplexF64}(undef, length(φgrid.grid))
-    # integrate over loop momentum q
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    MPI.Init()
+    root = 0
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    comm_size = MPI.Comm_size(comm)
+
+    @unpack qgrid, θgrid, φgrid, θ12, rs, Fs, kF, NF, basic, paramc = param
+
+    # Initialize vertex integrand
+    Nq = length(qgrid.grid)
+    q_integrand = zeros(ComplexF64, Nq)
+
+    # Setup buffers for scatter/gather
+    counts = split_count(Nq, comm_size)  # number of values per rank
+    data_vbuffer = VBuffer(q_integrand, counts)
+    if rank == root
+        length_ubuf = UBuffer(counts, 1)
+        # For global indices
+        qi_vbuffer = VBuffer(collect(1:Nq), counts)
+    else
+        length_ubuf = UBuffer(nothing)
+        qi_vbuffer = VBuffer(nothing)
+    end
+
+    # Scatter the data to all ranks
+    local_length = MPI.Scatter(length_ubuf, Int, root, comm)
+    local_qi = MPI.Scatterv!(qi_vbuffer, zeros(Int, local_length), root, comm)
+    local_data = MPI.Scatterv!(data_vbuffer, zeros(ComplexF64, local_length), root, comm)
+
+    # Compute the integrand over loop momentum magnitude q in parallel
     progress_meter = Progress(
-        length(qgrid.grid) * length(θgrid.grid) * length(φgrid.grid);
-        # desc="Progress (rank = 0): ",
+        local_length;
+        desc="Progress (rank = 0): ",
         output=stdout,
         showspeed=true,
-        enabled=show_progress,
+        enabled=show_progress && rank == root,
     )
-    for (iq, q) in enumerate(qgrid)
+    θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
+    φ_integrand = Vector{ComplexF64}(undef, length(φgrid.grid))
+    for (i, qi) in enumerate(local_qi)
+        # println("rank = $rank: Integrating (q, 0) point $i/$local_length")
+        # Get external frequency and momentum at this index
+        q = qgrid.grid[qi]
         for (iθ, θ) in enumerate(θgrid)
             for (iφ, φ) in enumerate(φgrid)
                 φ_integrand[iφ] = box_matsubara_sum(param, q, θ, φ)
-                next!(progress_meter)
             end
             θ_integrand[iθ] = Interp.integrate1D(φ_integrand, φgrid)
         end
-        q_integrand[iq] = Interp.integrate1D(θ_integrand .* sin.(θgrid.grid), θgrid)
+        local_data[i] = Interp.integrate1D(θ_integrand .* sin.(θgrid.grid), θgrid)
+        next!(progress_meter)
     end
     finish!(progress_meter)
+
+    # Collect q_integrand subresults from all ranks
+    MPI.Allgatherv!(local_data, data_vbuffer, comm)
+
     # total integrand ~ NF / 2
     box_integrand = q_integrand / (NF * 2 * (2π)^3)
+
+    # Integrate over q
     result = Interp.integrate1D(box_integrand, qgrid)
     return result
 end
 
-function test_vertex_integral(param::OneLoopParams; show_progress=true)
-    result = one_loop_vertex_corrections(param; show_progress=show_progress)
+function test_vertex_integral(param::OneLoopParams; show_progress=true, verbose=true)
+    verbose && println_root("Computing vertex part of F2...")
+    timed_res = @timed one_loop_vertex_corrections(param; show_progress=show_progress)
+    result = timed_res.value
+    verbose && println_root("done")
+    verbose && println_root(timed_result_to_string(timed_res))
     return result
 end
 
-function test_box_integral(param::OneLoopParams; show_progress=true)
-    result = one_loop_box_diagrams(param; show_progress=show_progress)
+function test_box_integral(param::OneLoopParams; show_progress=true, verbose=true)
+    verbose && println_root("Computing box part of F2...")
+    timed_res = @timed one_loop_box_diagrams(param; show_progress=show_progress)
+    result = timed_res.value
+    verbose && println_root("done")
+    verbose && println_root(timed_result_to_string(timed_res))
+    return result
+end
+
+function test_counterterms(param::OneLoopParams; show_progress=true, verbose=true)
+    verbose && println_root("Computing counterterm part of F2...")
+    timed_res = @timed one_loop_counterterms(param; show_progress=show_progress)
+    result = timed_res.value
+    verbose && println_root("done")
+    verbose && println_root(timed_result_to_string(timed_res))
     return result
 end
 
@@ -904,18 +1112,13 @@ function lerp(x, y, alpha)
     return (1 - alpha) * x + alpha * y
 end
 
-function get_one_loop_integrand(param::OneLoopParams; kwargs...)
-    function one_loop_integrand(param; kwargs...)
+function get_one_loop_Fs(param::OneLoopParams; kwargs...)
+    function one_loop_total(param; kwargs...)
         return one_loop_vertex_corrections(param; kwargs...) +
                one_loop_box_diagrams(param; kwargs...) +
                one_loop_counterterms(param; kwargs...)
     end
-    return one_loop_integrand
-end
-
-function get_one_loop_Fs(param::OneLoopParams; kwargs...)
-    integrand = get_one_loop_integrand(param; kwargs...)
-    F2 = missing
+    F2 = one_loop_total(param; kwargs...)
     return F2
 end
 
@@ -926,10 +1129,10 @@ function plot_F2v_convergence_vs_nk(; rs=1.0, beta=40.0, verbose=true, plot_extr
         (5, 4),  # Nq ≈ 50
         (6, 5),  # Nq ≈ 75
         (7, 6),  # Nq ≈ 100
-        (8, 6),  # Nq ≈ 125
-        (11, 5),  # Nq ≈ 150
-        (11, 6),  # Nq ≈ 175
-        (12, 6),  # Nq ≈ 200
+        # (8, 6),  # Nq ≈ 125
+        # (11, 5),  # Nq ≈ 150
+        # (11, 6),  # Nq ≈ 175
+        # (12, 6),  # Nq ≈ 200
     ]
     NOa_pairs = [
         (4, 4),    # Nθ = Nϕ ≈ 25
@@ -937,10 +1140,10 @@ function plot_F2v_convergence_vs_nk(; rs=1.0, beta=40.0, verbose=true, plot_extr
         (6, 5),    # Nθ = Nϕ ≈ 50
         (7, 6),    # Nθ = Nϕ ≈ 75
         (8, 7),    # Nθ = Nϕ ≈ 100
-        (8, 9),    # Nθ = Nϕ ≈ 125
-        (12, 7),    # Nθ = Nϕ ≈ 150
-        (9, 11),    # Nθ = Nϕ ≈ 175
-        (11, 10),  # Nθ = Nϕ ≈ 200
+        # (8, 9),    # Nθ = Nϕ ≈ 125
+        # (12, 7),    # Nθ = Nϕ ≈ 150
+        # (9, 11),    # Nθ = Nϕ ≈ 175
+        # (11, 10),  # Nθ = Nϕ ≈ 200
     ]
     nks = []
     F2s_rpa = []
@@ -1071,7 +1274,7 @@ end
 
 function plot_R_and_W0(param_rpa::OneLoopParams, param_kop::OneLoopParams)
     @assert param_rpa.initialized "δW₀(q, iνₘ) data not yet initialized!"
-    @assert param_kop.initialized "δR(q, iνₘ) data not yet initialized!"
+    @assert param_kop.initialized "R(q, iνₘ) data not yet initialized!"
     fig, ax = plt.subplots()
     labels = ["\$W_0\$", "\$R\$"]
     params = [param_rpa, param_kop]
@@ -1445,36 +1648,33 @@ function plot_F2v_convergence_vs_euv(;
 end
 
 function main()
+    MPI.Init()
+    comm = MPI.COMM_WORLD
+    root = 0
+    rank = MPI.Comm_rank(comm)
+
     rs = 10.0
     beta = 40.0
     verbose = true
 
-    # nk ≈ 150
-    Nk, Ok = 11, 5
-    Na, Oa = 12, 7
+    vertex_plots = false
+    box_plots = false
+    counterterm_plots = true
 
-    # # nk ≈ 200
-    # Nk, Ok = 12, 6
-    # Na, Oa = 11, 10
+    # nk ≈ 75 is sufficiently converged for all relevant euv/rtol
+    Nk, Ok = 7, 6
+    Na, Oa = 8, 7
 
     # DLR parameters for which R(q, 0) is smooth in the q → 0 limit (tested for rs = 1, 10)
     euv = 10.0
     rtol = 1e-7
-    # testdlr(rs, euv, rtol; verbose=true)
-
-    # for rtol in [1e-6, 1e-7, 1e-8, 1e-9, 1e-10]
-    #     testdlr(rs, euv, rtol; verbose=true)
-    #     plot_R_static_small_q(rs, euv, rtol)
-    # end
-
-    plot_F2v_convergence_vs_euv(; rs=rs, beta=beta, verbose=true)
-    return
-
-    # Check the quality of the DLR interpolation for R(q → 0, 0) at this Euv and rtol
-    plot_R_static_small_q(rs, euv, rtol)
-
-    # # Check the quality of the DLR interpolation for R(q → 0, 0) vs rtol at this Euv
-    # plot_R_static_vs_rtol_small_q(rs, euv)
+    if rank == root
+        testdlr(rs, euv, rtol; verbose=verbose)
+        # for rtol in [1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]
+        #     testdlr(rs, euv, rtol; verbose=verbose)
+        #     plot_R_static_small_q(rs, euv, rtol)
+        # end
+    end
 
     # RPA
     param_rpa =
@@ -1501,39 +1701,86 @@ function main()
     nq = length(param_rpa.qgrid)
     nt = length(param_rpa.θgrid)
     np = length(param_rpa.φgrid)
-    println("nq = $nq, nt = $nt, np = $np")
+    println_root("\nnq = $nq, nt = $nt, np = $np")
 
     # Precompute the interaction δR(q, iνₘ)
     initialize_one_loop_params!(param_rpa)
     initialize_one_loop_params!(param_kop)
 
-    plot_vertex_matsubara_summand(param_rpa)
-    plot_vertex_matsubara_sum(param_rpa)
-    plot_vertex_matsubara_summand(param_kop)
-    plot_vertex_matsubara_sum(param_kop)
+    if rank == root
+        # Vertex integrand plots
+        if vertex_plots
+            plot_vertex_matsubara_summand(param_rpa)
+            plot_vertex_matsubara_sum(param_rpa)
+            plot_vertex_matsubara_summand(param_kop)
+            plot_vertex_matsubara_sum(param_kop)
+        end
 
-    # Plot of R and W0 together
-    plot_R_and_W0(param_rpa, param_kop)
+        # Box integrand plots
+        if box_plots
+            plot_box_matsubara_summand(param_rpa)
+            plot_box_matsubara_sum(param_rpa)
+            plot_box_matsubara_summand(param_kop)
+            plot_box_matsubara_sum(param_kop)
+        end
 
-    # Plot dimensionless static interactions
-    plot_NF_times_R_and_W0_static()
+        # Counterterm plots
+        if counterterm_plots
+            # plot_counterterms(param_rpa)
+            # plot_counterterms(param_kop)
+        end
 
-    # plot_F2v_convergence_vs_nk(; rs=rs, beta=beta, verbose=true)
+        # # Plot of R and W0 together
+        # plot_R_and_W0(param_rpa, param_kop)
 
-    println("(nq = $nq) One-loop vertex part:")
+        # # Plot dimensionless static interactions
+        # plot_NF_times_R_and_W0_static()
+
+        # # Check the quality of the DLR interpolation for R(q → 0, 0) vs rtol at this Euv
+        # plot_R_static_vs_rtol_small_q(rs, euv)
+
+        # # Check the quality of the DLR interpolation for R(q → 0, 0) at this Euv and rtol
+        # plot_R_static_small_q(rs, euv, rtol)
+
+        # # Convergence plots
+        # plot_F2v_convergence_vs_nk(; rs=rs, beta=beta, verbose=verbose)
+        # plot_F2v_convergence_vs_euv(; rs=rs, beta=beta, verbose=verbose)
+    end
+
+    println_root("\nTree-level F+:")
     F1_rpa = F1(param_rpa)
+    println_root("(RPA) $(F1_rpa) ξ")
     F1_kop = F1(param_kop)
+    println_root("(KO+) $(F1_kop) ξ")
 
-    F2_rpa = test_vertex_integral(param_rpa)
-    println("(RPA) $(F1_rpa) ξ + $(F2_rpa) ξ²")
+    println_root("\nOne-loop vertex part:")
+    F2v_rpa = test_vertex_integral(param_rpa)
+    println_root("(RPA) $(F2v_rpa) ξ²")
+    F2v_kop = test_vertex_integral(param_kop)
+    println_root("(KO+) $(F2v_kop) ξ²")
 
-    F2_kop = test_vertex_integral(param_kop)
-    println("(KO+) $(F1_kop) ξ + $(F2_kop) ξ²")
+    println_root("\nOne-loop box part:")
+    F2b_rpa = test_box_integral(param_rpa)
+    println_root("(RPA) $(F2b_rpa) ξ²")
+    F2b_kop = test_box_integral(param_kop)
+    println_root("(KO+) $(F2b_kop) ξ²")
 
-    println("F+ from DMC: $(Fs)")
-    # result_rpa = test_box_integral(param_rpa)
-    # result_kop = test_box_integral(param_kop)
-    # println("One-loop box part:\n(RPA) $result_rpa\n(KO+) $result_kop")
+    if rank == root
+        println_root("\nOne-loop counterterm part:")
+        F2c_rpa = test_counterterms(param_rpa)
+        println_root("(RPA) $(F2c_rpa) ξ²")
+        F2c_kop = test_counterterms(param_kop)
+        println_root("(KO+) $(F2c_kop) ξ²")
+
+        println_root("\nOne-loop total:")
+        F2t_rpa = F2v_rpa + F2b_rpa + F2c_rpa
+        println_root("(RPA) $(F1_rpa) ξ + $(F2t_rpa) ξ²")
+        F2t_kop = F2v_kop + F2b_kop + F2c_kop
+        println_root("(KO+) $(F1_kop) ξ + $(F2t_kop) ξ²")
+    end
+
+    println_root("\nF+ from DMC: $(Fs)")
+    MPI.Finalize()
     return
 
     # # l=0 analytic plots
