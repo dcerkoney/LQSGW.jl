@@ -133,7 +133,9 @@ const AngularGridType = CompositeGrids.CompositeG.Composite{
     # We precompute δR(q, iνₘ) on a mesh of ~100 k-points
     # NOTE: EL.jl default is `Nk, Ok = 16, 16` (~700 k-points)
     qgrid_interp::MomInterpGridType =
-        CompositeGrid.LogDensedGrid(:uniform, [0.0, maxQ], [0.0, 2 * kF], 16, 0.01 * kF, 16)
+        CompositeGrid.LogDensedGrid(:uniform, [0.0, maxQ], [0.0, 2 * kF], 10, 0.01 * kF, 10)  # sufficient for 1-decimal accuracy
+    # CompositeGrid.LogDensedGrid(:uniform, [0.0, maxQ], [0.0, 2 * kF], 12, 0.01 * kF, 12)
+    # CompositeGrid.LogDensedGrid(:uniform, [0.0, maxQ], [0.0, 2 * kF], 16, 0.01 * kF, 16)
     # CompositeGrid.LogDensedGrid(:uniform, [0.0, maxQ], [0.0, 2 * kF], Nk, 0.01 * kF, Ok)
 
     # Later, we integrate δR(q, iνₘ) on a Gaussian mesh of ~100 k-points
@@ -1345,19 +1347,128 @@ function plot_R_static_small_q(rs, euv, rtol)
     end
 end
 
+function plot_F2v_convergence_vs_euv(;
+    rs=10.0,
+    beta=40.0,
+    rtols=[1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10],
+    kind="rpa",
+    verbose=true,
+)
+    @assert kind in ["rpa", "kop"] "kind must be either 'rpa' or 'kop'!"
+
+    Nk, Ok = (5, 4)  # Nq ≈ 50
+    Na, Oa = (6, 5)  # Nθ = Nϕ ≈ 50
+
+    euvs = [10, 100, 1000, 5000, 10000]
+    log_euvs = log10.(euvs)
+
+    for (i, rtol) in enumerate(rtols)
+        F2s = []
+        local param
+        for euv in euvs
+            if kind == "rpa"
+                # RPA
+                param = OneLoopParams(;
+                    rs=rs,
+                    beta=beta,
+                    euv=euv,
+                    rtol=rtol,
+                    Nk=Nk,
+                    Ok=Ok,
+                    Na=Na,
+                    Oa=Oa,
+                )
+            else
+                # KO+
+                param_rpa = OneLoopParams(;
+                    rs=rs,
+                    beta=beta,
+                    euv=euv,
+                    rtol=rtol,
+                    Nk=Nk,
+                    Ok=Ok,
+                    Na=Na,
+                    Oa=Oa,
+                )
+                Fs = -get_Fs(param_rpa.basic)  # ~ -2 when rs=10, -0.95 when rs=5, and -0.17 when rs=1
+                param = OneLoopParams(;
+                    rs=rs,
+                    beta=beta,
+                    Fs=Fs,
+                    euv=euv,
+                    rtol=rtol,
+                    Nk=Nk,
+                    Ok=Ok,
+                    Na=Na,
+                    Oa=Oa,
+                )
+                check_sign_Fs(param)
+            end
+
+            # Total number of momentum  amplitude and angular grid points
+            nk = length(param.qgrid)
+            na = length(param.θgrid)
+            nm = length(param.mgrid)
+            println("nk = $nk, na = $na, nm = $nm, Mmax = $(param.Mmax)")
+
+            # Precompute the interaction R(q, iνₘ)
+            initialize_one_loop_params!(param)
+
+            verbose && println("(euv = $euv, rtol = $rtol) One-loop vertex part:")
+            f1 = F1(param)
+            f2 = test_vertex_integral(param)
+            verbose && println("($(kind)) ($(f1))ξ + ($(f2))ξ²")
+            push!(F2s, f2)
+        end
+        # RPA convergence plot of F2 vs euv
+        fig, ax = plt.subplots()
+        ax.plot(
+            log_euvs,
+            real(F2s);
+            label="RPA",
+            color=cdict["blue"],
+            marker="o",
+            markersize=4,
+            markerfacecolor="none",
+        )
+        ax.set_xlabel("\$\\log_{10}\\left(\\Lambda_\\text{UV} / \\epsilon_F\\right)\$")
+        ax.set_ylabel("\$F^\\text{v}_2(\\theta_{12} = \\pi / 2)\$")
+        ax.legend(;
+            loc="best",
+            fontsize=14,
+            title="\$r_s = $(Int(round(rs)))\$, \$\\beta = $(Int(round(beta)))\$, \$\\epsilon = 10^{$(Int(round(log10(rtol))))}\$",
+        )
+        # fig.tight_layout()
+        fig.savefig("F2_vs_euv_rtol=$(rtol)_rs=$(rs)_beta=$(beta)_$(kind).pdf")
+    end
+    return
+end
+
 function main()
     rs = 10.0
     beta = 40.0
     verbose = true
 
-    # nk ≈ 100
-    Nk, Ok = 12, 6
-    Na, Oa = 11, 10
+    # nk ≈ 150
+    Nk, Ok = 11, 5
+    Na, Oa = 12, 7
+
+    # # nk ≈ 200
+    # Nk, Ok = 12, 6
+    # Na, Oa = 11, 10
 
     # DLR parameters for which R(q, 0) is smooth in the q → 0 limit (tested for rs = 1, 10)
     euv = 10.0
     rtol = 1e-7
-    testdlr(rs, euv, rtol; verbose=true)
+    # testdlr(rs, euv, rtol; verbose=true)
+
+    # for rtol in [1e-6, 1e-7, 1e-8, 1e-9, 1e-10]
+    #     testdlr(rs, euv, rtol; verbose=true)
+    #     plot_R_static_small_q(rs, euv, rtol)
+    # end
+
+    plot_F2v_convergence_vs_euv(; rs=rs, beta=beta, verbose=true)
+    return
 
     # Check the quality of the DLR interpolation for R(q → 0, 0) at this Euv and rtol
     plot_R_static_small_q(rs, euv, rtol)
@@ -1376,9 +1487,9 @@ function main()
     param_kop = OneLoopParams(;
         rs=rs,
         beta=beta,
+        Fs=Fs,
         euv=euv,
         rtol=rtol,
-        Fs=Fs,
         Nk=Nk,
         Ok=Ok,
         Na=Na,
