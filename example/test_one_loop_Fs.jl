@@ -1783,17 +1783,6 @@ function main()
     MPI.Finalize()
     return
 
-    # # l=0 analytic plots
-    # rs_Fsm1 = 5.24881  # Fs(rs = 5.24881) ≈ -1 (using Perdew-Wang fit)
-    # rslist = sort(unique([0.01; 0.025; 0.05; rs_Fsm1; collect(range(0.1, 10.0; step=0.1))]))
-    # plot_integrand_F1(param)
-    # get_analytic_F1(param, rslist; plot=true)
-    # return
-
-    # # Dimensionless angular momentum grid for k - k'
-    # xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
-    # k_m_kps = @. 2 * kF * xgrid
-
     # # Use the tree-level self-consistent result as a starting point
     # # TODO: add a relative tolerance variable and a check for convergence
     # alpha_mix = 0.5
