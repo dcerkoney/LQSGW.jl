@@ -21,16 +21,6 @@ import LQSGW: split_count, println_root, timed_result_to_string
 @pyimport scienceplots  # for style "science"
 @pyimport scipy.interpolate as interp
 
-const alpha_ueg = (4 / 9π)^(1 / 3)
-
-# Mapping of interaction types to Landau parameters
-const int_type_to_landaufunc = Dict(
-    :rpa => Interaction.landauParameter0,
-    :ko_const => Interaction.landauParameterConst,
-    :ko_moroni => Interaction.landauParameterMoroni,
-    :ko_simion_giuliani_plus => Interaction.landauParameterSimionGiulianiPlus,
-)
-
 # Vibrant qualitative colour scheme from https://personal.sron.nl/~pault/
 const cdict = Dict([
     "black" => "black",
@@ -58,6 +48,16 @@ rcParams = PyPlot.PyDict(PyPlot.matplotlib."rcParams")
 rcParams["font.size"] = 16
 rcParams["mathtext.fontset"] = "cm"
 rcParams["font.family"] = "Times New Roman"
+
+const alpha_ueg = (4 / 9π)^(1 / 3)
+
+# Mapping of interaction types to Landau parameters
+const int_type_to_landaufunc = Dict(
+    :rpa => Interaction.landauParameter0,
+    :ko_const => Interaction.landauParameterConst,
+    :ko_moroni => Interaction.landauParameterMoroni,
+    :ko_simion_giuliani_plus => Interaction.landauParameterSimionGiulianiPlus,
+)
 
 # Specify the type of momentum and frequency (index) grids explicitly to ensure type stability
 const MomInterpGridType = CompositeGrids.CompositeG.Composite{
