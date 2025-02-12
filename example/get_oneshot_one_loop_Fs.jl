@@ -303,11 +303,12 @@ end
 function one_loop_counterterms(param::OneLoopParams; kwargs...)
     @unpack rs, kF, EF, NF, Fs, basic = param
     rstilde = rs * alpha_ueg / π
+
+    # x = |k - k'| / 2kF
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 16, 1e-8, 16)
 
-    # -x N_F R(2kF x, 0), where x = |k - k'| / 2kF
-    integrand = [integrand_F1(x, rstilde, Fs) for x in xgrid]
-    F1 = (Fs / 2) + Interp.integrate1D(integrand, xgrid)  # NF * ⟨R⟩
+    # NF * ⟨R⟩ = -x N_F R(2kF x, 0)
+    F1 = get_F1(param)
 
     # x R(2kF x, 0)
     x_R0 = [x_NF_R0(x, rstilde, Fs) / NF for x in xgrid]
@@ -455,9 +456,8 @@ function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
     # S(iνₘ) = dR(q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p2, iω₀ + iν'ₘ)
     s_ivm = Vector{ComplexF64}(undef, length(mgrid))
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
-        # println(dR(param, q, m))
         s_ivm[i] = (
-            q^2 *
+            -q^2 *
             NF *
             R(param, q, m) *
             G0(param, p1, iw0 + im * vm) *
@@ -471,28 +471,37 @@ end
 
 function box_matsubara_summand(param::OneLoopParams, q, θ, φ)
     @unpack β, NF, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
-    # p1 = |k + q'|, p2 = |k' - q'|, qex = |k - k' + q'|
+    # p1 = |k + q'|, p2 = |k' + q'|, p3 = |k' - q'|, qex = |k - k' + q'|
     k1vec = [0, 0, kamp1]
     k2vec = kamp2 * [sin(θ12), 0, cos(θ12)]
     qvec = q * [sin(θ)cos(φ), sin(θ)sin(φ), cos(θ)]
     vec_p1 = k1vec + qvec
-    vec_p2 = k2vec - qvec
+    vec_p2 = k2vec + qvec
+    vec_p3 = k2vec - qvec
     vec_qex = k1vec - k2vec + qvec
     p1 = norm(vec_p1)
     p2 = norm(vec_p2)
+    p3 = norm(vec_p3)
     qex = norm(vec_qex)
-    # S(iνₘ) = dR(q', iν'ₘ) * dR(k - k' + q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p2, iω₀ - iν'ₘ)
+    # S(iνₘ) = dR(q', iν'ₘ) * dR(k - k' + q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p3, iω₀ - iν'ₘ)
     s_ivm = Vector{ComplexF64}(undef, length(mgrid))
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
-        # println(dR(param, q, m))
-        s_ivm[i] = (
+        # Fermionized frequencies, iω₀ ± iνₘ
+        ivm_p_tilde = iw0 + im * vm
+        ivm_m_tilde = iw0 - im * vm
+        s_ivm[i] =
             q^2 *
             NF^2 *
             R(param, q, m) *
-            R(param, qex, m) *
-            G0(param, p1, iw0 + im * vm) *
-            G0(param, p2, iw0 + im * vm) / β
-        )
+            G0(param, p1, ivm_p_tilde) *
+            (
+                # # Di (spin factor = 1)
+                # R(param, q, m) * (G0(param, p2, ivm_p_tilde) + G0(param, p3, ivm_m_tilde))
+                # Ex (spin factor = 1/2)
+                -
+                R(param, qex, m) *
+                (G0(param, p1, ivm_p_tilde) + G0(param, p3, ivm_m_tilde)) / 2
+            ) / β
     end
     # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
     summand = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
@@ -573,7 +582,7 @@ function one_loop_vertex_corrections(param::OneLoopParams; show_progress=false)
     # Collect q_integrand subresults from all ranks
     MPI.Allgatherv!(local_data, data_vbuffer, comm)
 
-    # total integrand ~ NF / 2, left + right insertions ⟹ no factor of 2
+    # total integrand ~ NF
     vertex_integrand = q_integrand / (2π)^3
 
     # Integrate over q
@@ -643,8 +652,8 @@ function one_loop_box_diagrams(param::OneLoopParams; show_progress=false)
     # Collect q_integrand subresults from all ranks
     MPI.Allgatherv!(local_data, data_vbuffer, comm)
 
-    # total integrand ~ NF / 2
-    box_integrand = q_integrand / (NF * 2 * (2π)^3)
+    # total integrand ~ NF
+    box_integrand = q_integrand / (NF * (2π)^3)
 
     # Integrate over q
     result = Interp.integrate1D(box_integrand, qgrid)
@@ -816,7 +825,7 @@ function main()
         println(F2bs)
         println(F2cts)
         println(F2s)
-        
+
         # Plot spline fits to data vs rs
         fig, ax = plt.subplots(; figsize=(5, 5))
         error = 1e-6 * ones(length(rslist))
