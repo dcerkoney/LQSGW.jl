@@ -193,6 +193,17 @@ to the DMC compressibility enhancement [doi: 10.1103/PhysRevB.57.14569].
     return 1.0 - kappa0_over_kappa
 end
 
+"""
+Get the antisymmetric l=0 Fermi-liquid parameter F⁰ₐ via  Corradini's fit
+to the DMC susceptibility enhancement [doi: 10.1103/PhysRevB.57.14569].
+"""
+@inline function get_Fa(param::Parameter.Para)
+    chi0_over_chi = Interaction.spin_susceptibility_enhancement(param)
+    # NOTE: NEFT uses opposite sign convention for F!
+    # -F⁰ₐ = 1 - χ₀/χ
+    return 1.0 - chi0_over_chi
+end
+
 function lindhard(x)
     if abs(x) < 1e-4
         return 1.0 - x^2 / 3 - x^4 / 15
@@ -326,7 +337,8 @@ function one_loop_counterterms(param::OneLoopParams; kwargs...)
     B = Interp.integrate1D(xgrid .* Π0 / NF, xgrid)
 
     # 2R(z1 - f1 Π0) - f1 Π0 f1 = 2 F1 A + F1² B
-    vertex_cts = 2 * F1 * A + F1^2 * B
+    vertex_cts = -(2 * F1 * A + F1^2 * B)
+    # vertex_cts = 2 * F1 * A + F1^2 * B
     return vertex_cts
 end
 
@@ -469,7 +481,8 @@ function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
     return summand
 end
 
-function box_matsubara_summand(param::OneLoopParams, q, θ, φ)
+function box_matsubara_summand(param::OneLoopParams, q, θ, φ, ftype)
+    @assert ftype in ["Fs", "Fa"]
     @unpack β, NF, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
     # p1 = |k + q'|, p2 = |k' + q'|, p3 = |k' - q'|, qex = |k - k' + q'|
     k1vec = [0, 0, kamp1]
@@ -487,21 +500,16 @@ function box_matsubara_summand(param::OneLoopParams, q, θ, φ)
     s_ivm = Vector{ComplexF64}(undef, length(mgrid))
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
         # Fermionized frequencies, iω₀ ± iνₘ
-        ivm_p_tilde = iw0 + im * vm
-        ivm_m_tilde = iw0 - im * vm
-        s_ivm[i] =
-            q^2 *
-            NF^2 *
-            R(param, q, m) *
-            G0(param, p1, ivm_p_tilde) *
-            (
-                # # Di (spin factor = 1)
-                # R(param, q, m) * (G0(param, p2, ivm_p_tilde) + G0(param, p3, ivm_m_tilde))
-                # Ex (spin factor = 1/2)
-                -
-                R(param, qex, m) *
-                (G0(param, p1, ivm_p_tilde) + G0(param, p3, ivm_m_tilde)) / 2
-            ) / β
+        ivm_Fp = iw0 + im * vm
+        ivm_Fm = iw0 - im * vm
+        # Ex (spin factor = 1/2)
+        s_ivm_inner =
+            -R(param, qex, m) * (G0(param, p1, ivm_Fp) + G0(param, p3, ivm_Fm)) / 2
+        if ftype == "Fs"
+            # Di (spin factor = 1)
+            s_ivm_inner += R(param, q, m) * (G0(param, p2, ivm_Fp) + G0(param, p3, ivm_Fm))
+        end
+        s_ivm[i] = q^2 * NF^2 * R(param, q, m) * G0(param, p1, ivm_Fp) * s_ivm_inner / β
     end
     # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
     summand = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
@@ -515,9 +523,9 @@ function vertex_matsubara_sum(param::OneLoopParams, q, θ, φ)
     return matsubara_sum
 end
 
-function box_matsubara_sum(param::OneLoopParams, q, θ, φ)
+function box_matsubara_sum(param::OneLoopParams, q, θ, φ; ftype="fs")
     # sum over iνₘ including negative frequency terms (S(iνₘ) = S(-iνₘ))
-    summand = box_matsubara_summand(param, q, θ, φ)
+    summand = box_matsubara_summand(param, q, θ, φ, ftype)
     matsubara_sum = summand[1] + 2 * sum(summand[2:end])
     return matsubara_sum
 end
@@ -593,8 +601,9 @@ function one_loop_vertex_corrections(param::OneLoopParams; show_progress=false)
 end
 
 # gg'RR' + exchange counterpart
-function one_loop_box_diagrams(param::OneLoopParams; show_progress=false)
+function one_loop_box_diagrams(param::OneLoopParams; show_progress=false, ftype="fs")
     @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @assert ftype in ["Fs", "Fa"]
     MPI.Init()
     root = 0
     comm = MPI.COMM_WORLD
@@ -640,7 +649,7 @@ function one_loop_box_diagrams(param::OneLoopParams; show_progress=false)
         q = qgrid.grid[qi]
         for (iθ, θ) in enumerate(θgrid)
             for (iφ, φ) in enumerate(φgrid)
-                φ_integrand[iφ] = box_matsubara_sum(param, q, θ, φ)
+                φ_integrand[iφ] = box_matsubara_sum(param, q, θ, φ; ftype=ftype)
             end
             θ_integrand[iθ] = Interp.integrate1D(φ_integrand, φgrid)
         end
@@ -665,7 +674,7 @@ function lerp(x, y, alpha)
     return (1 - alpha) * x + alpha * y
 end
 
-function get_one_loop_Fs(param::OneLoopParams; verbose=false, kwargs...)
+function get_one_loop_Fs(param::OneLoopParams; verbose=false, ftype="Fs", kwargs...)
     function one_loop_total(param, verbose; kwargs...)
         if verbose
             F1 = get_F1(param)
@@ -674,7 +683,7 @@ function get_one_loop_Fs(param::OneLoopParams; verbose=false, kwargs...)
             F2v = real(one_loop_vertex_corrections(param; kwargs...))
             println_root("F2v = ($(F2v))ξ²")
 
-            F2b = real(one_loop_box_diagrams(param; kwargs...))
+            F2b = real(one_loop_box_diagrams(param; ftype=ftype, kwargs...))
             println_root("F2b = ($(F2b))ξ²")
 
             F2ct = real(one_loop_counterterms(param; kwargs...))
@@ -699,10 +708,20 @@ function check_sign_Fs(param::OneLoopParams)
     # ElectronLiquid.jl sign convention: Fs < 0
     @unpack Fs, paramc = param
     if param.rs > 0.25
-        @assert Fs < 0 "Fs = $Fs must be negative in the ElectronLiquid convention!"
-        @assert paramc.Fs < 0 "Fs = $Fs must be negative in the ElectronLiquid convention!"
+        @assert Fs ≤ 0 "Fs = $Fs must be negative in the ElectronLiquid convention!"
+        @assert paramc.Fs ≤ 0 "Fs = $Fs must be negative in the ElectronLiquid convention!"
     else
         println("WARNING: when rs is nearly zero, we cannot check the sign of Fs!")
+    end
+end
+
+function check_signs_Fs_Fa(rs, Fs, Fa)
+    # ElectronLiquid.jl sign convention: Fs < 0
+    if rs > 0.25
+        @assert Fs ≤ 0 "Fs = $Fs must be negative in the ElectronLiquid convention!"
+        @assert Fa ≤ 0 "Fa = $Fa must be negative in the ElectronLiquid convention!"
+    else
+        println("WARNING: when rs is nearly zero, we cannot check the signs of Fs/Fa!")
     end
 end
 
@@ -761,6 +780,10 @@ function main()
     rslist = [[0.01, 0.1, 0.25, 0.5]; 1:0.5:10]
     beta = 40.0
 
+    # ftype = "Fs"  # f^{Di} + f^{Ex} / 2
+    ftype = "Fa"  # f^{Ex} / 2
+    ftypestr = ftype == "Fs" ? "F^{s}" : "F^{a}"
+
     plots = true
     debug = true
     verbose = true
@@ -775,6 +798,7 @@ function main()
     rtol = 1e-7
 
     Fs_DMCs = []
+    Fa_DMCs = []
     F1s = []
     F2vs = []
     F2bs = []
@@ -786,6 +810,7 @@ function main()
         end
         basic_param = Parameter.rydbergUnit(1.0 / beta, rs, 3)
         Fs_DMC = -get_Fs(basic_param)
+        Fa_DMC = -get_Fa(basic_param)
         println_root("\nrs = $rs:")
         println_root("F+ from DMC: $(Fs_DMC)")
         param = OneLoopParams(;
@@ -801,16 +826,25 @@ function main()
         )
         if debug && rank == root && rs > 0.25
             check_sign_Fs(param)
+            check_signs_Fs_Fa(rs, Fs_DMC, Fa_DMC)
         end
         if verbose && rank == root && i == 1
             println_root("nk=$(length(param.qgrid)), na=$(length(param.θgrid))")
+            println_root("nk=$(length(param.qgrid)), na=$(length(param.θgrid))")
             println_root("euv=$(param.euv), rtol=$(param.rtol)")
-            println_root("\nrs=$(param.rs), beta=$(param.beta), Fs=$(param.Fs)")
+            println_root(
+                "\nrs=$(param.rs), beta=$(param.beta), Fs=$(Fs_DMC), Fa=$(Fa_DMC)",
+            )
         end
         initialize_one_loop_params!(param)  # precompute the interaction interpoland R(q, iνₘ)
-        F1, F2v, F2b, F2ct, F2 =
-            get_one_loop_Fs(param; verbose=verbose, show_progress=show_progress)
+        F1, F2v, F2b, F2ct, F2 = get_one_loop_Fs(
+            param;
+            verbose=verbose,
+            show_progress=show_progress,
+            ftype=ftype,
+        )
         push!(Fs_DMCs, Fs_DMC)
+        push!(Fa_DMCs, Fa_DMC)
         push!(F1s, F1)
         push!(F2vs, F2v)
         push!(F2bs, F2b)
@@ -820,6 +854,7 @@ function main()
     end
     if plots && rank == root
         println(Fs_DMCs)
+        println(Fa_DMCs)
         println(F1s)
         println(F2vs)
         println(F2bs)
@@ -829,11 +864,9 @@ function main()
         # Plot spline fits to data vs rs
         fig, ax = plt.subplots(; figsize=(5, 5))
         error = 1e-6 * ones(length(rslist))
-        ax.plot(
-            spline(rslist, Fs_DMCs, error)...;
-            label="\$F_\\text{DMC}\$",
-            color=cdict["grey"],
-        )
+        flabel = ftype == "Fs" ? "\$F^{s}_{\\text{DMC}}\$" : "\$F^{a}_{\\text{DMC}}\$"
+        fdata = ftype == "Fs" ? Fs_DMCs : Fa_DMCs
+        ax.plot(spline(rslist, fdata, error)...; label=flabel, color=cdict["grey"])
         ax.plot(spline(rslist, F1s, error)...; label="\$F_1 \\xi\$", color=cdict["orange"])
         ax.plot(
             spline(rslist, F1s .+ F2s, error)...;
@@ -842,17 +875,17 @@ function main()
         )
         ax.plot(
             spline(rslist, F2vs, error)...;
-            label="\$F^\\text{v}_2\$",
+            label="\${$ftypestr}_{\\text{v},2}\$",
             color=cdict["cyan"],
         )
         ax.plot(
             spline(rslist, F2bs, error)...;
-            label="\$F^\\text{b}_2\$",
+            label="\${$ftypestr}_{\\text{b},2}\$",
             color=cdict["magenta"],
         )
         ax.plot(
             spline(rslist, F2cts, error)...;
-            label="\$F^\\text{ct}_2\$",
+            label="\${$ftypestr}_{\\text{ct},2}\$",
             color=cdict["teal"],
         )
         ax.set_xlabel("\$r_s\$")
@@ -866,7 +899,7 @@ function main()
             title="\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$",
         )
         fig.tight_layout()
-        fig.savefig("oneshot_one_loop_Fs_vs_rs_euv=$(euv)_rtol=$(rtol).pdf")
+        fig.savefig("oneshot_one_loop_$(ftype)_vs_rs_euv=$(euv)_rtol=$(rtol).pdf")
         plt.close(fig)
     end
     MPI.Finalize()
