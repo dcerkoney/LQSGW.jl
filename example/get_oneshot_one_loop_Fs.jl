@@ -285,6 +285,13 @@ function get_Z1(param::OneLoopParams, kgrid::KGT) where {KGT<:AbstractVector}
     sigma1 = Σ1(param, kgrid)
     return zfactor_fermi(param.basic, sigma1)  # compute Z_F using improved finite-temperature scaling
 end
+function get_Z1(param::OneLoopParams)
+    @unpack kF = param
+    kgrid =
+        CompositeGrid.LogDensedGrid(:gauss, [0.0, 2.0 * kF], [0.0, kF], 16, 1e-8 * kF, 16)
+    sigma1 = Σ1(param, kgrid)
+    return zfactor_fermi(param.basic, sigma1)  # compute Z_F using improved finite-temperature scaling
+end
 
 """
 Tree-level estimate of F⁺₀ ~ ⟨R(k - k', 0)⟩.
@@ -481,6 +488,13 @@ function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
     return summand
 end
 
+function vertex_matsubara_sum(param::OneLoopParams, q, θ, φ)
+    # sum over iνₘ including negative frequency terms (S(iνₘ) = S(-iνₘ))
+    summand = vertex_matsubara_summand(param, q, θ, φ)
+    matsubara_sum = summand[1] + 2 * sum(summand[2:end])
+    return matsubara_sum
+end
+
 function box_matsubara_summand(param::OneLoopParams, q, θ, φ, ftype)
     @assert ftype in ["Fs", "Fa"]
     @unpack β, NF, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
@@ -516,18 +530,171 @@ function box_matsubara_summand(param::OneLoopParams, q, θ, φ, ftype)
     return summand
 end
 
-function vertex_matsubara_sum(param::OneLoopParams, q, θ, φ)
-    # sum over iνₘ including negative frequency terms (S(iνₘ) = S(-iνₘ))
-    summand = vertex_matsubara_summand(param, q, θ, φ)
-    matsubara_sum = summand[1] + 2 * sum(summand[2:end])
-    return matsubara_sum
-end
-
 function box_matsubara_sum(param::OneLoopParams, q, θ, φ; ftype="fs")
     # sum over iνₘ including negative frequency terms (S(iνₘ) = S(-iνₘ))
     summand = box_matsubara_summand(param, q, θ, φ, ftype)
     matsubara_sum = summand[1] + 2 * sum(summand[2:end])
     return matsubara_sum
+end
+
+function direct_box_matsubara_summand(param::OneLoopParams, q, θ, φ; which="both")
+    @assert which in ["both", "ladder", "crossed"]
+    @unpack β, NF, kamp1, kamp2, θ12, mgrid, vmgrid, Mmax, iw0 = param
+    # p1 = |k + q'|, p2 = |k' + q'|, p3 = |k' - q'|, qex = |k - k' + q'|
+    k1vec = [0, 0, kamp1]
+    k2vec = kamp2 * [sin(θ12), 0, cos(θ12)]
+    qvec = q * [sin(θ)cos(φ), sin(θ)sin(φ), cos(θ)]
+    vec_p1 = k1vec + qvec
+    vec_p2 = k2vec + qvec
+    vec_p3 = k2vec - qvec
+    vec_qex = k1vec - k2vec + qvec
+    p1 = norm(vec_p1)
+    p2 = norm(vec_p2)
+    p3 = norm(vec_p3)
+    qex = norm(vec_qex)
+    # S(iνₘ) = dR(q', iν'ₘ) * dR(k - k' + q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p3, iω₀ - iν'ₘ)
+    s_ivm = Vector{ComplexF64}(undef, length(mgrid))
+    for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
+        # Fermionized frequencies, iω₀ ± iνₘ
+        ivm_Fp = iw0 + im * vm
+        ivm_Fm = iw0 - im * vm
+        # Ex (spin factor = 1/2)
+        if which == "both"
+            s_ivm_inner = R(param, q, m) * (G0(param, p2, ivm_Fp) + G0(param, p3, ivm_Fm))
+        elseif which == "crossed"
+            s_ivm_inner = R(param, q, m) * G0(param, p2, ivm_Fp)
+        elseif which == "ladder"
+            s_ivm_inner = R(param, q, m) * G0(param, p3, ivm_Fm)
+        end
+        s_ivm[i] = q^2 * NF^2 * R(param, q, m) * G0(param, p1, ivm_Fp) * s_ivm_inner / β
+    end
+    # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
+    summand = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
+    return summand
+end
+
+function direct_box_matsubara_sum(param::OneLoopParams, q, θ, φ; which="both")
+    # sum over iνₘ including negative frequency terms (S(iνₘ) = S(-iνₘ))
+    @assert which in ["both", "ladder", "crossed"]
+    summand = direct_box_matsubara_summand(param, q, θ, φ; which=which)
+    matsubara_sum = summand[1] + 2 * sum(summand[2:end])
+    return matsubara_sum
+end
+
+function plot_direct_box_matsubara_summand(param::OneLoopParams; which="both")
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @assert which in ["both", "ladder", "crossed"]
+    @unpack β, kF, EF, Mmax, Q_CUTOFF = param
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+        coordinates = [
+            [q, 0, rand(0:(2π))],  # q || k1 (equivalent to q || k2)
+            [q, π, rand(0:(2π))],  # q || -k1 (equivalent to q || -k2)
+            [q, 3π / 4, π],      # q maximally spaced from (anti-bisects) k1 & k2
+            [q, π / 4, 0],       # q bisects k1 & k2
+            [q, π / 2, π / 2],   # q || y-axis
+            [q, 2π / 3, π / 3],  # general asymmetrically placed q #1
+        ]
+        labels = [
+            "\$\\theta=0, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\pi, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\frac{3\\pi}{4}, \\varphi=\\pi\$",
+            "\$\\theta=\\frac{\\pi}{4}, \\varphi=0\$",
+            "\$\\theta=\\frac{\\pi}{2}, \\varphi=\\frac{\\pi}{2}\$",
+            "\$\\theta=\\frac{2\\pi}{3}, \\varphi=\\frac{\\pi}{3}\$",
+        ]
+        # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+        fig, ax = plt.subplots(; figsize=(5, 5))
+        vms = (0:Mmax) * (2π / β)
+        for (i, (label, coord)) in enumerate(zip(labels, coordinates))
+            summand = direct_box_matsubara_summand(param, coord...; which=which)
+            ax.plot(
+                vms / EF,
+                real(summand);
+                color=color[i],
+                label=label,
+                marker="o",
+                markersize=4,
+                markerfacecolor="none",
+            )
+        end
+        ax.set_xlabel("\$i\\nu_m / \\epsilon_F\$")
+        ax.set_ylabel("\$S^\\text{b,Di}_\\mathbf{q}(i\\nu_m)\$")
+        ax.set_xlim(0, 4)
+        ax.legend(;
+            loc="best",
+            fontsize=14,
+            title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+        )
+        # fig.tight_layout()
+        kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+        fig.savefig("$(which)_direct_box_matsubara_summand_q=$(qstr)_$(kindstr).pdf")
+    end
+    return
+end
+
+function plot_direct_box_matsubara_sum(param::OneLoopParams; which="both")
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @assert which in ["both", "ladder", "crossed"]
+    @unpack β, kF, EF, Mmax, Q_CUTOFF, θgrid = param
+    clabels = ["Re", "Im"]
+    cparts = [real, imag]
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (clabel, cpart) in zip(clabels, cparts)
+        for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+            phis = [0, π / 4, π / 2, 3π / 4, π]
+            labels = [
+                "\$\\varphi=0\$",
+                "\$\\varphi=\\frac{\\pi}{4}\$",
+                "\$\\varphi=\\frac{\\pi}{2}\$",
+                "\$\\varphi=\\frac{3\\pi}{4}\$",
+                "\$\\varphi=\\pi\$",
+            ]
+            # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+            fig, ax = plt.subplots(; figsize=(5, 5))
+            for (i, (label, φ)) in enumerate(zip(labels, phis))
+                matsubara_sum_vs_θ = [
+                    direct_box_matsubara_sum(param, q, θ, φ; which=which) for
+                    θ in θgrid.grid
+                ]
+                ax.plot(
+                    θgrid.grid,
+                    cpart(matsubara_sum_vs_θ);
+                    color=color[i],
+                    label=label,
+                    # marker="o",
+                    # markersize=4,
+                    # markerfacecolor="none",
+                )
+            end
+            ax.set_xlabel("\$\\theta\$")
+            ax.set_ylabel("\$S_\\text{b,Di}(q, \\theta, \\phi; \\theta_{12} = \\pi / 2)\$")
+            ax.set_xlim(0, π)
+            ax.set_xticks([0, π / 4, π / 2, 3π / 4, π])
+            ax.set_xticklabels([
+                "0",
+                "\$\\frac{\\pi}{4}\$",
+                "\$\\frac{\\pi}{2}\$",
+                "\$\\frac{3\\pi}{4}\$",
+                "\$\\pi\$",
+            ])
+            ax.legend(;
+                loc="best",
+                fontsize=14,
+                title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+                ncol=2,
+            )
+            # fig.tight_layout()
+            kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+            fig.savefig(
+                "$(clabel)_$(which)_direct_box_matsubara_sum_q=$(qstr)_$(kindstr).pdf",
+            )
+        end
+    end
 end
 
 # 2RΛ₁
@@ -669,12 +836,91 @@ function one_loop_box_diagrams(param::OneLoopParams; show_progress=false, ftype=
     return result
 end
 
+# gg'RR' + exchange counterpart
+function one_loop_direct_box_diagrams(
+    param::OneLoopParams;
+    show_progress=false,
+    which="both",
+)
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @assert which in ["both", "ladder", "crossed"]
+    MPI.Init()
+    root = 0
+    comm = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(comm)
+    comm_size = MPI.Comm_size(comm)
+
+    @unpack qgrid, θgrid, φgrid, θ12, rs, Fs, kF, NF, basic, paramc = param
+
+    # Initialize vertex integrand
+    Nq = length(qgrid.grid)
+    q_integrand = zeros(ComplexF64, Nq)
+
+    # Setup buffers for scatter/gather
+    counts = split_count(Nq, comm_size)  # number of values per rank
+    data_vbuffer = VBuffer(q_integrand, counts)
+    if rank == root
+        length_ubuf = UBuffer(counts, 1)
+        # For global indices
+        qi_vbuffer = VBuffer(collect(1:Nq), counts)
+    else
+        length_ubuf = UBuffer(nothing)
+        qi_vbuffer = VBuffer(nothing)
+    end
+
+    # Scatter the data to all ranks
+    local_length = MPI.Scatter(length_ubuf, Int, root, comm)
+    local_qi = MPI.Scatterv!(qi_vbuffer, zeros(Int, local_length), root, comm)
+    local_data = MPI.Scatterv!(data_vbuffer, zeros(ComplexF64, local_length), root, comm)
+
+    # Compute the integrand over loop momentum magnitude q in parallel
+    progress_meter = Progress(
+        local_length;
+        desc="Progress (rank = 0): ",
+        output=stdout,
+        showspeed=true,
+        enabled=show_progress && rank == root,
+    )
+    θ_integrand = Vector{ComplexF64}(undef, length(θgrid.grid))
+    φ_integrand = Vector{ComplexF64}(undef, length(φgrid.grid))
+    for (i, qi) in enumerate(local_qi)
+        # println("rank = $rank: Integrating (q, 0) point $i/$local_length")
+        # Get external frequency and momentum at this index
+        q = qgrid.grid[qi]
+        for (iθ, θ) in enumerate(θgrid)
+            for (iφ, φ) in enumerate(φgrid)
+                φ_integrand[iφ] = direct_box_matsubara_sum(param, q, θ, φ; which=which)
+            end
+            θ_integrand[iθ] = Interp.integrate1D(φ_integrand, φgrid)
+        end
+        local_data[i] = Interp.integrate1D(θ_integrand .* sin.(θgrid.grid), θgrid)
+        next!(progress_meter)
+    end
+    finish!(progress_meter)
+
+    # Collect q_integrand subresults from all ranks
+    MPI.Allgatherv!(local_data, data_vbuffer, comm)
+
+    # total integrand ~ NF
+    box_integrand = q_integrand / (NF * (2π)^3)
+
+    # Integrate over q
+    result = Interp.integrate1D(box_integrand, qgrid)
+    return result
+end
+
 # linear interpolation with mixing parameter α: x * (1 - α) + y * α
 function lerp(x, y, alpha)
     return (1 - alpha) * x + alpha * y
 end
 
-function get_one_loop_Fs(param::OneLoopParams; verbose=false, ftype="Fs", kwargs...)
+function get_one_loop_Fs(
+    param::OneLoopParams;
+    verbose=false,
+    ftype="Fs",
+    z_renorm=false,
+    kwargs...,
+)
     function one_loop_total(param, verbose; kwargs...)
         if verbose
             F1 = get_F1(param)
@@ -689,16 +935,31 @@ function get_one_loop_Fs(param::OneLoopParams; verbose=false, ftype="Fs", kwargs
             F2ct = real(one_loop_counterterms(param; kwargs...))
             println_root("F2ct = ($(F2ct))ξ²")
 
-            F2 = F2v + F2b + F2ct
+            # z²⟨Γ⟩ = (1 + z₁ξ + ...)²⟨Γ⟩ = 2z₁F₁ξ²
+            if z_renorm
+                z1 = get_Z1(param)
+                F2z = 2 * z1 * F1
+                println_root("F2z = ($(F2z))ξ²")
+            else
+                F2z = 0.0
+            end
+
+            F2 = F2v + F2b + F2ct + F2z
             println_root("F2 = ($(F1))ξ + ($(F2))ξ²")
-            return F1, F2v, F2b, F2ct, F2
+            return F1, F2v, F2b, F2ct, F2z, F2
         else
             F1 = get_F1(param)
             F2v = real(one_loop_vertex_corrections(param; kwargs...))
             F2b = real(one_loop_box_diagrams(param; kwargs...))
             F2ct = real(one_loop_counterterms(param; kwargs...))
-            F2 = F2v + F2b + F2ct
-            return F1, F2v, F2b, F2ct, F2
+            if z_renorm
+                z1 = get_Z1(param)
+                F2z = 2 * z1 * F1
+            else
+                F2z = 0.0
+            end
+            F2 = F2v + F2b + F2ct + F2z
+            return F1, F2v, F2b, F2ct, F2z, F2
         end
     end
     return one_loop_total(param, verbose; kwargs...)
@@ -780,22 +1041,88 @@ function main()
     rslist = [[0.01, 0.1, 0.25, 0.5]; 1:0.5:10]
     beta = 40.0
 
-    # ftype = "Fs"  # f^{Di} + f^{Ex} / 2
-    ftype = "Fa"  # f^{Ex} / 2
-    ftypestr = ftype == "Fs" ? "F^{s}" : "F^{a}"
-
+    z_renorm = false
     plots = true
     debug = true
     verbose = true
     show_progress = true
+    direct_box_plots = false
 
-    # nk ≈ na ≈ 75 is sufficiently converged for all relevant euv/rtol
-    Nk, Ok = 7, 6
-    Na, Oa = 8, 7
+    # ftype = "Fs"  # f^{Di} + f^{Ex} / 2
+    ftype = "Fa"  # f^{Ex} / 2
+    ftypestr = ftype == "Fs" ? "F^{s}" : "F^{a}"
+    zstr = z_renorm ? "z_renorm" : ""
+
+    # # nk ≈ na ≈ 100 is sufficiently converged for all relevant euv/rtol
+    # Nk, Ok = 7, 6
+    # Na, Oa = 8, 7
+
+    Nk, Ok = 11, 5
+    Na, Oa = 12, 7
 
     # DLR parameters for which R(q, 0) is smooth in the q → 0 limit (tested for rs = 1, 10)
     euv = 10.0
     rtol = 1e-7
+
+    # rs for direct box plots
+    rs = 10.0
+
+    # RPA
+    param_rpa =
+        OneLoopParams(; rs=rs, beta=beta, euv=euv, rtol=rtol, Nk=Nk, Ok=Ok, Na=Na, Oa=Oa)
+
+    # ~ -2 when rs=10, -0.95 when rs=5, and -0.17 when rs=1
+    Fs = -get_Fs(param_rpa.basic)
+
+    # KO+
+    param_kop = OneLoopParams(;
+        rs=rs,
+        beta=beta,
+        Fs=Fs,
+        euv=euv,
+        rtol=rtol,
+        Nk=Nk,
+        Ok=Ok,
+        Na=Na,
+        Oa=Oa,
+    )
+    check_sign_Fs(param_kop)
+
+    # Precompute the interaction R(q, iνₘ)
+    initialize_one_loop_params!(param_rpa)
+    initialize_one_loop_params!(param_kop)
+
+    # Test direct box integrand
+    for which in ["both", "ladder", "crossed"]
+        println_root("\n$which direct box diagrams:")
+        println_root("RPA:")
+        println_root(
+            one_loop_direct_box_diagrams(
+                param_rpa;
+                show_progress=show_progress,
+                which=which,
+            ),
+        )
+        println_root("KO+:")
+        println_root(
+            one_loop_direct_box_diagrams(
+                param_kop;
+                show_progress=show_progress,
+                which=which,
+            ),
+        )
+    end
+
+    # Direct box integrand plots
+    if direct_box_plots && rank == root
+        for which in ["both", "ladder", "crossed"]
+            plot_direct_box_matsubara_summand(param_rpa; which=which)
+            plot_direct_box_matsubara_sum(param_rpa; which=which)
+            plot_direct_box_matsubara_summand(param_kop; which=which)
+            plot_direct_box_matsubara_sum(param_kop; which=which)
+        end
+    end
+    return
 
     Fs_DMCs = []
     Fa_DMCs = []
@@ -803,6 +1130,7 @@ function main()
     F2vs = []
     F2bs = []
     F2cts = []
+    F2zs = []
     F2s = []
     for (i, rs) in enumerate(rslist)
         if debug && rank == root
@@ -832,16 +1160,15 @@ function main()
             println_root("nk=$(length(param.qgrid)), na=$(length(param.θgrid))")
             println_root("nk=$(length(param.qgrid)), na=$(length(param.θgrid))")
             println_root("euv=$(param.euv), rtol=$(param.rtol)")
-            println_root(
-                "\nrs=$(param.rs), beta=$(param.beta), Fs=$(Fs_DMC), Fa=$(Fa_DMC)",
-            )
+            println_root("\nrs=$(param.rs), beta=$(param.beta), Fs=$(Fs_DMC), Fa=$(Fa_DMC)")
         end
         initialize_one_loop_params!(param)  # precompute the interaction interpoland R(q, iνₘ)
-        F1, F2v, F2b, F2ct, F2 = get_one_loop_Fs(
+        F1, F2v, F2b, F2ct, F2z, F2 = get_one_loop_Fs(
             param;
             verbose=verbose,
             show_progress=show_progress,
             ftype=ftype,
+            z_renorm=z_renorm,
         )
         push!(Fs_DMCs, Fs_DMC)
         push!(Fa_DMCs, Fa_DMC)
@@ -849,6 +1176,7 @@ function main()
         push!(F2vs, F2v)
         push!(F2bs, F2b)
         push!(F2cts, F2ct)
+        push!(F2zs, F2z)
         push!(F2s, F2)
         GC.gc()
     end
@@ -859,6 +1187,7 @@ function main()
         println(F2vs)
         println(F2bs)
         println(F2cts)
+        println(F2zs)
         println(F2s)
 
         # Plot spline fits to data vs rs
@@ -888,6 +1217,11 @@ function main()
             label="\${$ftypestr}_{\\text{ct},2}\$",
             color=cdict["teal"],
         )
+        ax.plot(
+            spline(rslist, F2zs, error)...;
+            label="\${$ftypestr}_{\\text{z},2}\$",
+            color=cdict["red"],
+        )
         ax.set_xlabel("\$r_s\$")
         ax.set_xlim(0, maximum(rslist))
         ax.set_ylim(-5.5, 5.5)
@@ -899,7 +1233,7 @@ function main()
             title="\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$",
         )
         fig.tight_layout()
-        fig.savefig("oneshot_one_loop_$(ftype)_vs_rs_euv=$(euv)_rtol=$(rtol).pdf")
+        fig.savefig("oneshot_one_loop_$(ftype)_vs_rs_euv=$(euv)_rtol=$(rtol)_$(zstr).pdf")
         plt.close(fig)
     end
     MPI.Finalize()

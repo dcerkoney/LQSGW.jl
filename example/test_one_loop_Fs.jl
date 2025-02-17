@@ -1653,6 +1653,8 @@ function main()
     root = 0
     rank = MPI.Comm_rank(comm)
 
+    error("TODO: implement bugfixes as in 'get_oneshot_one_loop_Fs.jl'")
+
     rs = 10.0
     beta = 40.0
     verbose = true
