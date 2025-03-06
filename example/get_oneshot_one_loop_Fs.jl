@@ -1,20 +1,30 @@
+using AbstractTrees
 using Colors
 using CompositeGrids
 using ElectronGas
 using ElectronLiquid
+using FeynmanDiagram
 using GreenFunc
 # using JLD2
 using LinearAlgebra
 using Lehmann
 using LQSGW
+using Measurements
 using MPI
 using Parameters
 using ProgressMeter
 using PyCall
 using PyPlot
 using Roots
+using Test
 
 import LQSGW: split_count, println_root, timed_result_to_string
+
+import FeynmanDiagram.FrontEnds: TwoBodyChannel, Alli, PHr, PHEr, PPr, AnyChan
+import FeynmanDiagram.FrontEnds:
+    Filter, NoHartree, NoFock, DirectOnly, Wirreducible, Girreducible, NoBubble, Proper
+import FeynmanDiagram.FrontEnds: Response, Composite, ChargeCharge, SpinSpin, UpUp, UpDown
+import FeynmanDiagram.FrontEnds: AnalyticProperty, Instant, Dynamic
 
 @pyimport numpy as np   # for saving/loading numpy data
 @pyimport scienceplots  # for style "science"
@@ -94,9 +104,21 @@ const AngularGridType = CompositeGrids.CompositeG.Composite{
     mass2::Float64 = 1e-5     # fictitious Yukawa screening λ
     massratio::Float64 = 1.0  # mass ratio m*/m
 
+    # true:  KO+ interaction
+    # false: Yukawa interaction
+    isDynamic = true
+
     basic::Parameter.Para = Parameter.rydbergUnit(1.0 / beta, rs, dim; Λs=mass2, spin=spin)
-    paramc::ParaMC =
-        UEG.ParaMC(; rs=rs, beta=beta, dim=dim, spin=spin, mass2=mass2, Fs=Fs, basic=basic)
+    paramc::ParaMC = UEG.ParaMC(;
+        rs=rs,
+        beta=beta,
+        dim=dim,
+        spin=spin,
+        mass2=mass2,
+        Fs=Fs,
+        basic=basic,
+        isDynamic=isDynamic,
+    )
     kF::Float64 = basic.kF
     EF::Float64 = basic.EF
     β::Float64 = basic.β
@@ -125,7 +147,7 @@ const AngularGridType = CompositeGrids.CompositeG.Composite{
     euv::Float64 = 1000.0
     rtol::Float64 = 1e-7
 
-    # We precompute R(q, iνₘ) on a mesh of ~100 k-points
+    # We precompute r(q, iνₘ) on a mesh of ~100 k-points
     # NOTE: EL.jl default is `Nk, Ok = 16, 16` (~700 k-points)
     qgrid_interp::MomInterpGridType =
         CompositeGrid.LogDensedGrid(:uniform, [0.0, maxQ], [0.0, 2 * kF], 10, 0.01 * kF, 10)  # sufficient for 1-decimal accuracy
@@ -133,7 +155,7 @@ const AngularGridType = CompositeGrids.CompositeG.Composite{
     # CompositeGrid.LogDensedGrid(:uniform, [0.0, maxQ], [0.0, 2 * kF], 16, 0.01 * kF, 16)
     # CompositeGrid.LogDensedGrid(:uniform, [0.0, maxQ], [0.0, 2 * kF], Nk, 0.01 * kF, Ok)
 
-    # Later, we integrate R(q, iνₘ) on a Gaussian mesh of ~100 k-points
+    # Later, we integrate r(q, iνₘ) on a Gaussian mesh of ~100 k-points
     qgrid::MomGridType =
         CompositeGrid.LogDensedGrid(:gauss, [0.0, maxQ], [0.0, 2 * kF], Nk, 0.01 * kF, Ok)
     # CompositeGrid.LogDensedGrid(:gauss, [0.0, maxQ], [0.0, 2 * kF], 16, 0.01 * kF, 16)
@@ -167,10 +189,10 @@ const AngularGridType = CompositeGrids.CompositeG.Composite{
     iw0 = im * π / β  # fermionic
     iv1 = im * 2π / β  # bosonic
 
-    # R grid data is precomputed in an initialization step
-    initialized::Bool   = false
-    dR::Matrix{Float64} = Matrix{Float64}(undef, length(qgrid_interp), length(mgrid))
-    R::Matrix{Float64}  = Matrix{Float64}(undef, length(qgrid_interp), length(mgrid))
+    # r grid data is precomputed in an initialization step
+    initialized::Bool = false
+    r::Matrix{Float64} = Matrix{Float64}(undef, length(qgrid_interp), length(mgrid))
+    r_yukawa::Array{Float64} = Array{Float64}(undef, length(qgrid_interp))
 end
 
 function spline(x, y, e; xmin=0.0, xmax=x[end])
@@ -282,10 +304,16 @@ end
 Leading-order (one-loop) correction to Z_F.
 """
 function get_Z1(param::OneLoopParams, kgrid::KGT) where {KGT<:AbstractVector}
+    if param.isDynamic == false
+        return 1.0
+    end
     sigma1 = Σ1(param, kgrid)
     return zfactor_fermi(param.basic, sigma1)  # compute Z_F using improved finite-temperature scaling
 end
 function get_Z1(param::OneLoopParams)
+    if param.isDynamic == false
+        return 1.0
+    end
     @unpack kF = param
     kgrid =
         CompositeGrid.LogDensedGrid(:gauss, [0.0, 2.0 * kF], [0.0, kF], 16, 1e-8 * kF, 16)
@@ -297,6 +325,9 @@ end
 Tree-level estimate of F⁺₀ ~ ⟨R(k - k', 0)⟩.
 """
 function get_F1(param::OneLoopParams)
+    if param.isDynamic == false
+        return get_F1_TF(param.rs)
+    end
     @unpack rs, kF, EF, NF, Fs, basic = param
     rstilde = rs * alpha_ueg / π
     xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 16, 1e-8, 16)
@@ -304,6 +335,30 @@ function get_F1(param::OneLoopParams)
     F1 = (Fs / 2) + Interp.integrate1D(y, xgrid)
     return F1
 end
+
+"""
+Tree-level estimate of F⁺₀ ~ ⟨V_TF(k - k', 0)⟩ for the Thomas-Fermi interaction.
+"""
+function get_F1_TF(rs)
+    if isinf(rs)
+        return -0.5
+    elseif rs == 0
+        return -0.0
+    end
+    rstilde = rs * alpha_ueg / π
+    F1 = (rstilde / 2) * log(rstilde / (rstilde + 1))
+    return F1
+end
+
+# function integrand_F1(x, rs_tilde, Fs=0.0)
+#     if isinf(rs_tilde)
+#         return -x / lindhard(x)
+#     end
+#     coeff = rs_tilde + Fs * x^2
+#     # NF (R + f)
+#     NF_times_Rpf_ex = coeff / (x^2 + coeff * lindhard(x))
+#     return -x * NF_times_Rpf_ex
+# end
 
 function x_NF_R0(x, rs_tilde, Fs=0.0)
     if isinf(rs_tilde)
@@ -317,9 +372,22 @@ function x_NF_R0(x, rs_tilde, Fs=0.0)
     return x * NF_times_Rp_ex
 end
 
+function x_NF_VTF(x, rs_tilde, Fs=0.0)
+    if isinf(rs_tilde)
+        return x
+    elseif rs_tilde == 0
+        return 0.0
+    end
+    NF_times_VTF_ex = rs_tilde / (x^2 + rs_tilde)
+    return x * NF_times_VTF_ex
+end
+
 # 2R(z1 - f1 Π0) - f1 Π0 f1
 function one_loop_counterterms(param::OneLoopParams; kwargs...)
-    @unpack rs, kF, EF, NF, Fs, basic = param
+    @unpack rs, kF, EF, NF, Fs, basic, isDynamic = param
+    if isDynamic
+        @assert param.mass2 == param.qTF "Counterterms currently only implemented for the Thomas-Fermi interaction (Yukawa mass = qTF)!"
+    end
     rstilde = rs * alpha_ueg / π
 
     # x = |k - k'| / 2kF
@@ -329,7 +397,8 @@ function one_loop_counterterms(param::OneLoopParams; kwargs...)
     F1 = get_F1(param)
 
     # x R(2kF x, 0)
-    x_R0 = [x_NF_R0(x, rstilde, Fs) / NF for x in xgrid]
+    x_NF_R = isDynamic ? x_NF_R0 : x_NF_VTF
+    x_R0 = [x_NF_R(x, rstilde, Fs) / NF for x in xgrid]
 
     # Z_1(kF)
     z1 = get_Z1(param, 2 * kF * xgrid)
@@ -350,53 +419,44 @@ function one_loop_counterterms(param::OneLoopParams; kwargs...)
 end
 
 """
-Regularized KO interaction δR(q, iνₘ) = R(q, iνₘ) / r_q, where r_q = v_q + f.
+Dimensionless KO interaction, r(q, iνₘ) = NF * R(q, iνₘ)
 """
-function dR_data(param::OneLoopParams)
-    @unpack paramc, qgrid_interp, mgrid, Mmax, dlr, fs = param
+function r_data(param::OneLoopParams)
+    @unpack paramc, qgrid_interp, mgrid, Mmax, dlr, Fs, NF = param
     Nq, Nw = length(qgrid_interp), length(mgrid)
     Pi = zeros(Float64, (Nq, Nw))
-    dRs = zeros(Float64, (Nq, Nw))
+    rq = zeros(Float64, (Nq, Nw))
     for (ni, n) in enumerate(mgrid)
         for (qi, q) in enumerate(qgrid_interp)
-            rq = UEG.KOinstant(q, paramc)
-            invrq = 1.0 / rq
-            # Rq = (vq + f) / (1 - (vq + f) Π0) - f
-            # δRq = Rq / rq =  1 / (1 - (vq + f) Π0) - f / (vq + f)
+            vq_plus_f = UEG.KOinstant(q, paramc)
+            inv_vq_plus_f = 1.0 / vq_plus_f
+            # rq = NF (vq + f) / (1 - (vq + f) Π0) - F
             Pi[qi, ni] = UEG.polarKW(q, n, paramc)
-            dRs[qi, ni] = 1 / (1 - rq * Pi[qi, ni]) - fs * invrq
+            rq[qi, ni] = NF / (inv_vq_plus_f - Pi[qi, ni]) - Fs
         end
     end
     # upsample to full frequency grid with indices ranging from 0 to M
-    dRs = matfreq2matfreq(dlr, dRs, collect(0:Mmax); axis=2)
-    return real.(dRs)  # δR(q, iνₘ) = δR(q, -iνₘ) ⟹ δR is real
+    rq = matfreq2matfreq(dlr, rq, collect(0:Mmax); axis=2)
+    return real.(rq)  # r(q, iνₘ) = r(q, -iνₘ) ⟹ r is real
 end
 
 """
-Unregularized KO interaction R(q, iνₘ)
+Dimensionless Yukawa interaction, r_yukawa(q) = NF * V_yukawa(q) = qTF^2 / (q^2 + mass2)
 """
-function R_data(param::OneLoopParams)
-    @unpack paramc, qgrid_interp, mgrid, Mmax, dlr, fs = param
-    Nq, Nw = length(qgrid_interp), length(mgrid)
-    Pi = zeros(Float64, (Nq, Nw))
-    Rs = zeros(Float64, (Nq, Nw))
-    for (ni, n) in enumerate(mgrid)
-        for (qi, q) in enumerate(qgrid_interp)
-            rq = UEG.KOinstant(q, paramc)
-            invrq = 1.0 / rq
-            # Rq = (vq + f) / (1 - (vq + f) Π0) - f
-            Pi[qi, ni] = UEG.polarKW(q, n, paramc)
-            Rs[qi, ni] = 1 / (invrq - Pi[qi, ni]) - fs
-        end
-    end
-    # upsample to full frequency grid with indices ranging from 0 to M
-    Rs = matfreq2matfreq(dlr, Rs, collect(0:Mmax); axis=2)
-    return real.(Rs)  # R(q, iνₘ) = R(q, -iνₘ) ⟹ R is real
+function r_yukawa_data(param::OneLoopParams)
+    @unpack qgrid_interp, qTF, mass2 = param
+    r_yukawa(q) = qTF^2 / (q^2 + mass2)
+    return r_yukawa.(qgrid_interp)
 end
 
 function initialize_one_loop_params!(param::OneLoopParams)
-    param.dR = dR_data(param)
-    param.R = R_data(param)
+    if param.isDynamic
+        # Dimensionless KO+ interaction, NF R = NF (v + f) / (1 - (v + f) Π₀) - f
+        param.r = r_data(param)
+    else
+        # Dimensionless Yukawa interaction with mass √λ, NF V = qTF^2 / (q^2 + λ)
+        param.r_yukawa = r_yukawa_data(param)
+    end
     param.initialized = true
 end
 
@@ -409,57 +469,36 @@ function G0(param::OneLoopParams, k, iwn)
 end
 
 """
-R(q, n) = r(q) δR(q, n) via multilinear interpolation of δR, where n indexes bosonic Matsubara frequencies iνₙ.
+r(q, n) via multilinear interpolation, where n indexes bosonic Matsubara frequencies iνₙ.
 """
-function R_from_dR(param::OneLoopParams, q, n)
+function r_interp(param::OneLoopParams, q, n)
     if q > param.maxQ
         return 0.0
     end
     if q ≤ param.Q_CUTOFF
         q = param.Q_CUTOFF
     end
-    rq = UEG.KOinstant(q, param.paramc)
-    return rq * UEG.linear2D(param.dR, param.qgrid_interp, param.mgrid, q, n)
+    if param.isDynamic
+        v_q_n = UEG.linear2D(param.r, param.qgrid_interp, param.mgrid, q, n)
+    else
+        v_q_n = Interp.interp1D(param.r_yukawa, param.qgrid_interp, q)
+    end
+    return v_q_n
 end
 
 """
-R(q, n) via multilinear interpolation, where n indexes bosonic Matsubara frequencies iνₙ.
+δr(q, n) = r(q, n) / (v(q) + f) via multilinear interpolation of r, where n indexes bosonic Matsubara frequencies iνₙ.
 """
-function R(param::OneLoopParams, q, n)
+function dr_from_r(param::OneLoopParams, q, n)
+    @assert param.isDynamic "δr(q, n) is only relevant when `isDynamic=true`!"
     if q > param.maxQ
         return 0.0
     end
     if q ≤ param.Q_CUTOFF
         q = param.Q_CUTOFF
     end
-    return UEG.linear2D(param.R, param.qgrid_interp, param.mgrid, q, n)
-end
-
-"""
-δR(q, n) = R(q, n) / r(q) via multilinear interpolation of R, where n indexes bosonic Matsubara frequencies iνₙ.
-"""
-function dR_from_R(param::OneLoopParams, q, n)
-    if q > param.maxQ
-        return 0.0
-    end
-    if q ≤ param.Q_CUTOFF
-        q = param.Q_CUTOFF
-    end
-    rq = UEG.KOinstant(q, param.paramc)
-    return UEG.linear2D(param.R, param.qgrid_interp, param.mgrid, q, n) / rq
-end
-
-"""
-δR(q, n) via multilinear interpolation, where n indexes bosonic Matsubara frequencies iνₙ.
-"""
-function dR(param::OneLoopParams, q, n)
-    if q > param.maxQ
-        return 0.0
-    end
-    if q ≤ param.Q_CUTOFF
-        q = param.Q_CUTOFF
-    end
-    return UEG.linear2D(param.dR, param.qgrid_interp, param.mgrid, q, n)
+    vq_plus_f = UEG.KOinstant(q, param.paramc)
+    return UEG.linear2D(param.r, param.qgrid_interp, param.mgrid, q, n) / vq_plus_f
 end
 
 function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
@@ -472,13 +511,12 @@ function vertex_matsubara_summand(param::OneLoopParams, q, θ, φ)
     vec_p2 = k2vec + qvec
     p1 = norm(vec_p1)
     p2 = norm(vec_p2)
-    # S(iνₘ) = dR(q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p2, iω₀ + iν'ₘ)
+    # S(iνₘ) = r(q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p2, iω₀ + iν'ₘ)
     s_ivm = Vector{ComplexF64}(undef, length(mgrid))
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
         s_ivm[i] = (
             -q^2 *
-            NF *
-            R(param, q, m) *
+            r_interp(param, q, m) *
             G0(param, p1, iw0 + im * vm) *
             G0(param, p2, iw0 + im * vm) / β
         )
@@ -510,7 +548,7 @@ function box_matsubara_summand(param::OneLoopParams, q, θ, φ, ftype)
     p2 = norm(vec_p2)
     p3 = norm(vec_p3)
     qex = norm(vec_qex)
-    # S(iνₘ) = dR(q', iν'ₘ) * dR(k - k' + q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p3, iω₀ - iν'ₘ)
+    # S(iνₘ) = R(q', iν'ₘ) * R(k - k' + q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p3, iω₀ - iν'ₘ)
     s_ivm = Vector{ComplexF64}(undef, length(mgrid))
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
         # Fermionized frequencies, iω₀ ± iνₘ
@@ -518,12 +556,13 @@ function box_matsubara_summand(param::OneLoopParams, q, θ, φ, ftype)
         ivm_Fm = iw0 - im * vm
         # Ex (spin factor = 1/2)
         s_ivm_inner =
-            -R(param, qex, m) * (G0(param, p1, ivm_Fp) + G0(param, p3, ivm_Fm)) / 2
+            -r_interp(param, qex, m) * (G0(param, p1, ivm_Fp) + G0(param, p3, ivm_Fm)) / 2
         if ftype == "Fs"
             # Di (spin factor = 1)
-            s_ivm_inner += R(param, q, m) * (G0(param, p2, ivm_Fp) + G0(param, p3, ivm_Fm))
+            s_ivm_inner +=
+                r_interp(param, q, m) * (G0(param, p2, ivm_Fp) + G0(param, p3, ivm_Fm))
         end
-        s_ivm[i] = q^2 * NF^2 * R(param, q, m) * G0(param, p1, ivm_Fp) * s_ivm_inner / β
+        s_ivm[i] = q^2 * r_interp(param, q, m) * G0(param, p1, ivm_Fp) * s_ivm_inner / β
     end
     # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
     summand = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
@@ -552,7 +591,7 @@ function direct_box_matsubara_summand(param::OneLoopParams, q, θ, φ; which="bo
     p2 = norm(vec_p2)
     p3 = norm(vec_p3)
     qex = norm(vec_qex)
-    # S(iνₘ) = dR(q', iν'ₘ) * dR(k - k' + q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p3, iω₀ - iν'ₘ)
+    # S(iνₘ) = r(q', iν'ₘ) * r(k - k' + q', iν'ₘ) * g(p1, iω₀ + iν'ₘ) * g(p3, iω₀ - iν'ₘ)
     s_ivm = Vector{ComplexF64}(undef, length(mgrid))
     for (i, (m, vm)) in enumerate(zip(mgrid, vmgrid))
         # Fermionized frequencies, iω₀ ± iνₘ
@@ -560,13 +599,14 @@ function direct_box_matsubara_summand(param::OneLoopParams, q, θ, φ; which="bo
         ivm_Fm = iw0 - im * vm
         # Ex (spin factor = 1/2)
         if which == "both"
-            s_ivm_inner = R(param, q, m) * (G0(param, p2, ivm_Fp) + G0(param, p3, ivm_Fm))
+            s_ivm_inner =
+                r_interp(param, q, m) * (G0(param, p2, ivm_Fp) + G0(param, p3, ivm_Fm))
         elseif which == "crossed"
-            s_ivm_inner = R(param, q, m) * G0(param, p2, ivm_Fp)
+            s_ivm_inner = r_interp(param, q, m) * G0(param, p2, ivm_Fp)
         elseif which == "ladder"
-            s_ivm_inner = R(param, q, m) * G0(param, p3, ivm_Fm)
+            s_ivm_inner = r_interp(param, q, m) * G0(param, p3, ivm_Fm)
         end
-        s_ivm[i] = q^2 * NF^2 * R(param, q, m) * G0(param, p1, ivm_Fp) * s_ivm_inner / β
+        s_ivm[i] = q^2 * r_interp(param, q, m) * G0(param, p1, ivm_Fp) * s_ivm_inner / β
     end
     # interpolate data for S(iνₘ) over entire frequency mesh from 0 to Mmax
     summand = Interp.interp1DGrid(s_ivm, mgrid, 0:Mmax)
@@ -581,10 +621,240 @@ function direct_box_matsubara_sum(param::OneLoopParams, q, θ, φ; which="both")
     return matsubara_sum
 end
 
+function plot_vertex_matsubara_summand(param::OneLoopParams)
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @unpack β, kF, EF, Mmax, Q_CUTOFF, isDynamic = param
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+        coordinates = [
+            [q, 0, rand(0:(2π))],  # q || k1 (equivalent to q || k2)
+            [q, π, rand(0:(2π))],  # q || -k1 (equivalent to q || -k2)
+            [q, 3π / 4, π],      # q maximally spaced from (anti-bisects) k1 & k2
+            [q, π / 4, 0],       # q bisects k1 & k2
+            [q, π / 2, π / 2],   # q || y-axis
+            [q, 2π / 3, π / 3],  # general asymmetrically placed q #1
+        ]
+        labels = [
+            "\$\\theta=0, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\pi, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\frac{3\\pi}{4}, \\varphi=\\pi\$",
+            "\$\\theta=\\frac{\\pi}{4}, \\varphi=0\$",
+            "\$\\theta=\\frac{\\pi}{2}, \\varphi=\\frac{\\pi}{2}\$",
+            "\$\\theta=\\frac{2\\pi}{3}, \\varphi=\\frac{\\pi}{3}\$",
+        ]
+        # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+        fig, ax = plt.subplots(; figsize=(5, 5))
+        vms = (0:Mmax) * (2π / β)
+        for (i, (label, coord)) in enumerate(zip(labels, coordinates))
+            summand = vertex_matsubara_summand(param, coord...)
+            ax.plot(
+                vms / EF,
+                real(summand);
+                color=color[i],
+                label=label,
+                marker="o",
+                markersize=4,
+                markerfacecolor="none",
+            )
+        end
+        ax.set_xlabel("\$i\\nu_m / \\epsilon_F\$")
+        ax.set_ylabel("\$S^\\text{v}_\\mathbf{q}(i\\nu_m)\$")
+        ax.set_xlim(0, 4)
+        ax.legend(;
+            loc="best",
+            fontsize=14,
+            title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+        )
+        # fig.tight_layout()
+        kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+        interactionstr = isDynamic ? "" : "yukawa"
+        fig.savefig("vertex_matsubara_summand_q=$(qstr)_$(kindstr)_$(interactionstr).pdf")
+    end
+    return
+end
+
+function plot_vertex_matsubara_sum(param::OneLoopParams)
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @unpack β, kF, EF, Mmax, Q_CUTOFF, θgrid, isDynamic = param
+    clabels = ["Re", "Im"]
+    cparts = [real, imag]
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (clabel, cpart) in zip(clabels, cparts)
+        for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+            phis = [0, π / 4, π / 2, 3π / 4, π]
+            labels = [
+                "\$\\varphi=0\$",
+                "\$\\varphi=\\frac{\\pi}{4}\$",
+                "\$\\varphi=\\frac{\\pi}{2}\$",
+                "\$\\varphi=\\frac{3\\pi}{4}\$",
+                "\$\\varphi=\\pi\$",
+            ]
+            # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+            fig, ax = plt.subplots(; figsize=(5, 5))
+            for (i, (label, φ)) in enumerate(zip(labels, phis))
+                matsubara_sum_vs_θ =
+                    [vertex_matsubara_sum(param, q, θ, φ) for θ in θgrid.grid]
+                ax.plot(
+                    θgrid.grid,
+                    cpart(matsubara_sum_vs_θ);
+                    color=color[i],
+                    label=label,
+                    # marker="o",
+                    # markersize=4,
+                    # markerfacecolor="none",
+                )
+            end
+            ax.set_xlabel("\$\\theta\$")
+            ax.set_ylabel("\$S_\\text{v}(q, \\theta, \\phi; \\theta_{12} = \\pi / 2)\$")
+            ax.set_xlim(0, π)
+            ax.set_xticks([0, π / 4, π / 2, 3π / 4, π])
+            ax.set_xticklabels([
+                "0",
+                "\$\\frac{\\pi}{4}\$",
+                "\$\\frac{\\pi}{2}\$",
+                "\$\\frac{3\\pi}{4}\$",
+                "\$\\pi\$",
+            ])
+            ax.legend(;
+                loc="best",
+                fontsize=14,
+                title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+                ncol=2,
+            )
+            # fig.tight_layout()
+            kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+            interactionstr = isDynamic ? "" : "yukawa"
+            fig.savefig(
+                "$(clabel)_vertex_matsubara_sum_q=$(qstr)_$(kindstr)_$(interactionstr).pdf",
+            )
+        end
+    end
+end
+
+function plot_box_matsubara_summand(param::OneLoopParams; ftype="Fs")
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @unpack β, kF, EF, Mmax, Q_CUTOFF, isDynamic = param
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+        coordinates = [
+            [q, 0, rand(0:(2π))],  # q || k1 (equivalent to q || k2)
+            [q, π, rand(0:(2π))],  # q || -k1 (equivalent to q || -k2)
+            [q, 3π / 4, π],      # q maximally spaced from (anti-bisects) k1 & k2
+            [q, π / 4, 0],       # q bisects k1 & k2
+            [q, π / 2, π / 2],   # q || y-axis
+            [q, 2π / 3, π / 3],  # general asymmetrically placed q #1
+        ]
+        labels = [
+            "\$\\theta=0, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\pi, \\varphi \\in [0, 2\\pi]\$",
+            "\$\\theta=\\frac{3\\pi}{4}, \\varphi=\\pi\$",
+            "\$\\theta=\\frac{\\pi}{4}, \\varphi=0\$",
+            "\$\\theta=\\frac{\\pi}{2}, \\varphi=\\frac{\\pi}{2}\$",
+            "\$\\theta=\\frac{2\\pi}{3}, \\varphi=\\frac{\\pi}{3}\$",
+        ]
+        # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+        fig, ax = plt.subplots(; figsize=(5, 5))
+        vms = (0:Mmax) * (2π / β)
+        for (i, (label, coord)) in enumerate(zip(labels, coordinates))
+            summand = box_matsubara_summand(param, coord..., ftype)
+            ax.plot(
+                vms / EF,
+                real(summand);
+                color=color[i],
+                label=label,
+                marker="o",
+                markersize=4,
+                markerfacecolor="none",
+            )
+        end
+        ax.set_xlabel("\$i\\nu_m / \\epsilon_F\$")
+        ax.set_ylabel("\$S^\\text{b}_\\mathbf{q}(i\\nu_m)\$")
+        ax.set_xlim(0, 4)
+        ax.legend(;
+            loc="best",
+            fontsize=14,
+            title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+        )
+        # fig.tight_layout()
+        kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+        interactionstr = isDynamic ? "" : "yukawa"
+        fig.savefig(
+            "box_matsubara_summand_$(ftype)_q=$(qstr)_$(kindstr)_$(interactionstr).pdf",
+        )
+    end
+    return
+end
+
+function plot_box_matsubara_sum(param::OneLoopParams; ftype="Fs")
+    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @unpack β, kF, EF, Mmax, Q_CUTOFF, θgrid, isDynamic = param
+    clabels = ["Re", "Im"]
+    cparts = [real, imag]
+    plot_qs = [Q_CUTOFF, kF, 2 * kF]
+    plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
+    plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
+    for (clabel, cpart) in zip(clabels, cparts)
+        for (q, qstr, qlabel) in zip(plot_qs, plot_qstrs, plot_qlabels)
+            phis = [0, π / 4, π / 2, 3π / 4, π]
+            labels = [
+                "\$\\varphi=0\$",
+                "\$\\varphi=\\frac{\\pi}{4}\$",
+                "\$\\varphi=\\frac{\\pi}{2}\$",
+                "\$\\varphi=\\frac{3\\pi}{4}\$",
+                "\$\\varphi=\\pi\$",
+            ]
+            # Plot the Matsubara summand vs iνₘ for fixed q, θ, φ
+            fig, ax = plt.subplots(; figsize=(5, 5))
+            for (i, (label, φ)) in enumerate(zip(labels, phis))
+                matsubara_sum_vs_θ =
+                    [box_matsubara_sum(param, q, θ, φ; ftype=ftype) for θ in θgrid.grid]
+                ax.plot(
+                    θgrid.grid,
+                    cpart(matsubara_sum_vs_θ);
+                    color=color[i],
+                    label=label,
+                    # marker="o",
+                    # markersize=4,
+                    # markerfacecolor="none",
+                )
+            end
+            ax.set_xlabel("\$\\theta\$")
+            ax.set_ylabel("\$S_\\text{b}(q, \\theta, \\phi; \\theta_{12} = \\pi / 2)\$")
+            ax.set_xlim(0, π)
+            ax.set_xticks([0, π / 4, π / 2, 3π / 4, π])
+            ax.set_xticklabels([
+                "0",
+                "\$\\frac{\\pi}{4}\$",
+                "\$\\frac{\\pi}{2}\$",
+                "\$\\frac{3\\pi}{4}\$",
+                "\$\\pi\$",
+            ])
+            ax.legend(;
+                loc="best",
+                fontsize=14,
+                title="\$\\mathbf{k}_1 = k_F\\mathbf{\\hat{z}}, \\mathbf{k}_2 = k_F\\mathbf{\\hat{x}}, $qlabel\$",
+                ncol=2,
+            )
+            # fig.tight_layout()
+            kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+            interactionstr = isDynamic ? "" : "yukawa"
+            fig.savefig(
+                "$(clabel)_box_matsubara_sum_$(ftype)_q=$(qstr)_$(kindstr)_$(interactionstr).pdf",
+            )
+        end
+    end
+end
+
 function plot_direct_box_matsubara_summand(param::OneLoopParams; which="both")
     @assert param.initialized "R(q, iνₘ) data not yet initialized!"
     @assert which in ["both", "ladder", "crossed"]
-    @unpack β, kF, EF, Mmax, Q_CUTOFF = param
+    @unpack β, kF, EF, Mmax, Q_CUTOFF, isDynamic = param
     plot_qs = [Q_CUTOFF, kF, 2 * kF]
     plot_qstrs = ["Q_CUTOFF", "kF", "2kF"]
     plot_qlabels = ["q \\approx 0", "q = k_F", "q = 2k_F"]
@@ -630,7 +900,10 @@ function plot_direct_box_matsubara_summand(param::OneLoopParams; which="both")
         )
         # fig.tight_layout()
         kindstr = param.Fs == 0.0 ? "rpa" : "kop"
-        fig.savefig("$(which)_direct_box_matsubara_summand_q=$(qstr)_$(kindstr).pdf")
+        interactionstr = isDynamic ? "" : "yukawa"
+        fig.savefig(
+            "$(which)_direct_box_matsubara_summand_q=$(qstr)_$(kindstr)_$(interactionstr).pdf",
+        )
     end
     return
 end
@@ -638,7 +911,7 @@ end
 function plot_direct_box_matsubara_sum(param::OneLoopParams; which="both")
     @assert param.initialized "R(q, iνₘ) data not yet initialized!"
     @assert which in ["both", "ladder", "crossed"]
-    @unpack β, kF, EF, Mmax, Q_CUTOFF, θgrid = param
+    @unpack β, kF, EF, Mmax, Q_CUTOFF, θgrid, isDynamic = param
     clabels = ["Re", "Im"]
     cparts = [real, imag]
     plot_qs = [Q_CUTOFF, kF, 2 * kF]
@@ -690,8 +963,9 @@ function plot_direct_box_matsubara_sum(param::OneLoopParams; which="both")
             )
             # fig.tight_layout()
             kindstr = param.Fs == 0.0 ? "rpa" : "kop"
+            interactionstr = isDynamic ? "" : "yukawa"
             fig.savefig(
-                "$(clabel)_$(which)_direct_box_matsubara_sum_q=$(qstr)_$(kindstr).pdf",
+                "$(clabel)_$(which)_direct_box_matsubara_sum_q=$(qstr)_$(kindstr)_$(interactionstr).pdf",
             )
         end
     end
@@ -758,18 +1032,18 @@ function one_loop_vertex_corrections(param::OneLoopParams; show_progress=false)
     MPI.Allgatherv!(local_data, data_vbuffer, comm)
 
     # total integrand ~ NF
-    vertex_integrand = q_integrand / (2π)^3
+    vertex_integrand = q_integrand / (NF * (2π)^3)
 
     # Integrate over q
     k_m_kp = kF * sqrt(2 * (1 - cos(θ12)))
-    # Fᵥ(θ₁₂) = Λ₁(θ₁₂) R(|k₁ - k₂|, 0)
-    result = Interp.integrate1D(vertex_integrand, qgrid) * R(param, k_m_kp, 0)
+    # Fᵥ(θ₁₂) = Λ₁(θ₁₂) r(|k₁ - k₂|, 0)
+    result = Interp.integrate1D(vertex_integrand, qgrid) * r_interp(param, k_m_kp, 0)
     return result
 end
 
 # gg'RR' + exchange counterpart
 function one_loop_box_diagrams(param::OneLoopParams; show_progress=false, ftype="fs")
-    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @assert param.initialized "r(q, iνₘ) data not yet initialized!"
     @assert ftype in ["Fs", "Fa"]
     MPI.Init()
     root = 0
@@ -842,7 +1116,7 @@ function one_loop_direct_box_diagrams(
     show_progress=false,
     which="both",
 )
-    @assert param.initialized "R(q, iνₘ) data not yet initialized!"
+    @assert param.initialized "r(q, iνₘ) data not yet initialized!"
     @assert which in ["both", "ladder", "crossed"]
     MPI.Init()
     root = 0
@@ -923,7 +1197,7 @@ function get_one_loop_Fs(
 )
     function one_loop_total(param, verbose; kwargs...)
         if verbose
-            F1 = get_F1(param)
+            F1 = param.isDynamic ? get_F1(param) : get_F1_TF(param.rs)
             println_root("F1 = ($(F1))ξ")
 
             F2v = real(one_loop_vertex_corrections(param; kwargs...))
@@ -1031,98 +1305,422 @@ function testdlr(rs, euv, rtol; rpa=false, verbose=false)
     return Rs, qgrid_interp, paramc
 end
 
+function compare(data, expect, ratio=5)
+    println(data, ", ", expect)
+    @test isapprox(data.val, expect, atol=ratio * data.err)
+end
+
+function test_yukawa_tree_level_neft()
+    seed = 1234
+
+    # Tree-level => no internal loops or counterterms
+    p = (0, 0, 0)
+
+    dummy_paramc = ElectronLiquid.ParaMC(;
+        rs=0.01,
+        beta=40.0,
+        Fs=0.0,
+        order=0,
+        mass2=0.0,
+        isDynamic=false,
+    )
+
+    # returns: (partition, diagpara, FeynGraphs, extT_labels, spin_conventions)
+    diagrams = Diagram.diagram_parquet_response(
+        :vertex4,
+        dummy_paramc,
+        [p];
+        filter=[Proper, NoHartree],  # Proper => only exchange part contribute to F₁
+        transferLoop=zeros(3),       # (Q,Ω) → 0
+    )
+    graphs = diagrams[3]
+    println("Tree-level computational graphs from Diagram.diagram_parquet_response:")
+    print_tree(graphs)
+
+    rslist = [0.01, 0.1, 1.0, 10.0]
+    for rs in rslist
+        println("\nTesting for rs = $rs:")
+        qTF = Parameter.rydbergUnit(1.0 / 40.0, rs, 3).qTF
+        paramc = ElectronLiquid.ParaMC(;
+            rs=rs,
+            beta=40.0,
+            Fs=0.0,
+            order=0,
+            mass2=qTF^2,  # for a particularly simple dimensionless interaction
+            isDynamic=false,
+        )
+        @unpack e0, NF, mass2 = paramc
+
+        ########## test l=0 PH averged Yukawa interaction ############
+        data, result =
+            Ver4.lavg(paramc, diagrams; neval=1e5, l=[0], n=[-1, 0, 0], seed=seed, print=-1)
+        obs = data[p]
+        println("up-up: $(obs[1]), up-down: $(obs[2])")
+
+        # Why are these swapped?
+        Fp_MCMC = -real(obs[1] - obs[2]) / 2 # (upup - updn) / 2, extra minus sign, factor of 1/2 already included in lavg
+        Fm_MCMC = -real(obs[1] + obs[2]) / 2 # (upup + updn) / 2, extra minus sign, factor of 1/2 already included in lavg
+        println("Fp = $Fp_MCMC, Fm = $Fm_MCMC")
+
+        Fp, Fm = Ver4.projected_exchange_interaction(0, paramc, Ver4.exchange_Coulomb)
+        println("MCMC for exchange vs NEFT quadrature")
+        compare(Fp_MCMC, -Fp)
+        compare(Fm_MCMC, -Fm)
+
+        # expect = 0.0
+        # compare(real(obs[1]), expect)
+        expect = -4π * e0^2 / (mass2) * NF
+        println("MCMC for exchange up-down vs exact")
+        compare(real(obs[2]), expect)
+    end
+end
+
+function test_yukawa_one_loop_neft()
+    seed = 1234
+
+    # One-loop => only interaction-type counterterms
+    p = UEG.partition(1; offset=0)  # TEST: G-type counterterms should be removed by Diagram.diagram_parquet_response!
+    # p = [(1, 0, 0), (0, 0, 1)]
+
+    dummy_paramc = ElectronLiquid.ParaMC(;
+        rs=0.01,
+        beta=40.0,
+        Fs=0.0,
+        order=1,
+        mass2=0.0,
+        isDynamic=false,
+    )
+
+    # NOTE: we need to include the bubble diagram, as it will be cancelled numerically by the interaction counterterm
+    filter = [Proper, NoHartree]  # Proper => only exchange and box-type direct diagrams contribute to F₂
+
+    # returns: (partition, diagpara, FeynGraphs, extT_labels, spin_conventions)
+    diagrams = Diagram.diagram_parquet_response(
+        :vertex4,
+        dummy_paramc,
+        p;
+        filter=filter,
+        transferLoop=zeros(16),  # (Q,Ω) → 0
+    )
+    graphs = diagrams[3]
+    println("Tree-level computational graphs from Diagram.diagram_parquet_response:")
+    print_tree(graphs)
+
+    rslist = [0.01, 0.1, 1.0, 10.0]
+    for rs in rslist
+        println("\nTesting for rs = $rs:")
+        qTF = Parameter.rydbergUnit(1.0 / 40.0, rs, 3).qTF
+        paramc = ElectronLiquid.ParaMC(;
+            rs=rs,
+            beta=40.0,
+            Fs=0.0,
+            order=1,
+            mass2=qTF^2,  # for a particularly simple dimensionless interaction
+            isDynamic=false,
+        )
+        @unpack e0, NF, mass2 = paramc
+
+        ########## test l=0 PH averged Yukawa interaction ############
+        data, result =
+            Ver4.lavg(paramc, diagrams; neval=1e6, l=[0], n=[-1, 0, 0], seed=seed, print=-1)
+
+        # (0, 0, 0)
+        obs_tl = real(data[p[1]])
+
+        # (1, 0, 0)
+        obs = real(data[p[2]])
+
+        # # (0, 1, 0)
+        # obs_gct = real(data[p[3]])
+        # println("(G counterterms)\tup-up: $(obs_gct[1]), up-down: $(obs_gct[2])")
+
+        # (0, 0, 1)
+        obs_ict = real(data[p[4]])
+
+        # Fp = -real(obs[1] + obs[2]) # upup + updn, extra minus sign, factor of 1/2 already included in lavg
+        # Fm = -real(obs[1] - obs[2]) # upup - updn, extra minus sign, factor of 1/2 already included in lavg
+        # println("Fp = $Fp, Fm = $Fm")
+
+        exchange_tl = obs_tl[1] - obs_tl[2] # exchange = upup - updn
+        exchange = obs[1] - obs[2] # exchange = upup - updn
+        exchange_ct = obs_ict[1] - obs_ict[2] # exchange = upup - updn
+        println(
+            "(tree-level)\tup-up: $(obs_tl[1]), up-down: $(obs_tl[2]), exchange: $(exchange_tl)",
+        )
+        println(
+            "(one-loop diagrams)\tup-up: $(obs[1]), up-down: $(obs[2]), exchange: $(exchange)",
+        )
+        println(
+            "(one-loop counterterms)\tup-up: $(obs_ict[1]), up-down: $(obs_ict[2]), exchange: $(exchange_ct)",
+        )
+
+        F1 = exchange_tl
+        F2 = exchange + exchange_ct
+        println("F = ($(F1))ξ + ($(F2))ξ² + O(ξ³)")
+
+        # TODO: check this—is the test written incorrectly? how can (upup - updn) correspond to Fp?
+        Wp, Wm, θgrid = Ver4.exchange_Coulomb(paramc) # Wp = exchanged Coulomb interaction, Wm = 0
+        Fp = Ver4.Legrendre(0, Wp, θgrid)
+        println("MCMC for tree-level exchange vs NEFT quadrature")
+        compare(real(exchange_tl), Fp)
+
+        # expect = 0.0
+        # compare(real(obs[1]), expect)
+        expect = -4π * e0^2 / (mass2) * NF
+        println("MCMC for tree-level up-down vs exact")
+        compare(real(obs_tl[2]), expect)
+    end
+end
+
+function get_yukawa_one_loop_neft(rslist, beta; neval=1e6, seed=1234)
+    # One-loop => only interaction-type counterterms
+    p = UEG.partition(1; offset=0)  # TEST: G-type counterterms should be removed by Diagram.diagram_parquet_response!
+
+    dummy_paramc = ElectronLiquid.ParaMC(;
+        rs=0.01,
+        beta=beta,
+        Fs=0.0,
+        order=2,
+        mass2=0.0,
+        isDynamic=false,
+    )
+
+    # NOTE: we need to include the bubble diagram, as it will be cancelled numerically by the interaction counterterm
+    filter = [Proper, NoHartree]  # Proper => only exchange and box-type direct diagrams contribute to F₂
+
+    # returns: (partition, diagpara, FeynGraphs, extT_labels, spin_conventions)
+    diagrams = Diagram.diagram_parquet_response(
+        :vertex4,
+        dummy_paramc,
+        p;
+        filter=filter,
+        transferLoop=zeros(16),  # (Q,Ω) → 0
+    )
+    graphs = diagrams[3]
+    println("Tree-level computational graphs from Diagram.diagram_parquet_response:")
+    print_tree(graphs)
+
+    FsDMCs = []
+    FaDMCs = []
+    F1s = []
+    Fs2s = []
+    for rs in rslist
+        println("\nrs = $rs:")
+        qTF = Parameter.rydbergUnit(1.0 / beta, rs, 3).qTF
+        paramc = ElectronLiquid.ParaMC(;
+            rs=rs,
+            beta=beta,
+            Fs=0.0,
+            order=2,
+            mass2=qTF^2,  # for a particularly simple dimensionless interaction
+            isDynamic=false,
+        )
+        @unpack e0, NF, mass2, basic = paramc
+
+        Fs_DMC = -get_Fs(basic)
+        Fa_DMC = -get_Fa(basic)
+        println_root("F+ from DMC: $(Fs_DMC), F- from DMC: $(Fa_DMC)")
+
+        ########## test l=0 PH averged Yukawa interaction ############
+        data, result = Ver4.lavg(
+            paramc,
+            diagrams;
+            neval=neval,
+            l=[0],
+            n=[-1, 0, 0],
+            seed=seed,
+            print=-1,
+        )
+
+        # (0, 0, 0)
+        obs_tl = real(data[p[1]])
+
+        # (1, 0, 0)
+        obs = real(data[p[2]])
+
+        # # (0, 1, 0)
+        # obs_gct = real(data[p[3]])
+        # println("(G counterterms)\tup-up: $(obs_gct[1]), up-down: $(obs_gct[2])")
+
+        # (0, 0, 1)
+        obs_ict = real(data[p[4]])
+
+        # Fp = -real(obs[1] + obs[2]) # upup + updn, extra minus sign, factor of 1/2 already included in lavg
+        # Fm = -real(obs[1] - obs[2]) # upup - updn, extra minus sign, factor of 1/2 already included in lavg
+        # println("Fp = $Fp, Fm = $Fm")
+
+        # TODO: understand this! KEY QUESTION: is it still -1/2 at one-loop level? still upup - updn?
+        fudge_factor = -0.5
+
+        exchange_tl = fudge_factor * (obs_tl[1] - obs_tl[2]) # exchange = upup - updn
+        exchange = fudge_factor * (obs[1] - obs[2]) # exchange = upup - updn
+        exchange_ct = fudge_factor * (obs_ict[1] - obs_ict[2]) # exchange = upup - updn
+
+        println(
+            "(tree-level)\tup-up: $(obs_tl[1]), up-down: $(obs_tl[2]), exchange: $(exchange_tl)",
+        )
+        println(
+            "(one-loop diagrams)\tup-up: $(obs[1]), up-down: $(obs[2]), exchange: $(exchange)",
+        )
+        println(
+            "(one-loop counterterms)\tup-up: $(obs_ict[1]), up-down: $(obs_ict[2]), exchange: $(exchange_ct)",
+        )
+
+        F1 = exchange_tl
+        F2 = exchange + exchange_ct
+        println("F = ($(F1))ξ + ($(F2))ξ² + O(ξ³)")
+
+        push!(FsDMCs, Fs_DMC)
+        push!(FaDMCs, Fa_DMC)
+        push!(F1s, F1)
+        push!(Fs2s, F2)
+        GC.gc()
+    end
+    return FsDMCs, FaDMCs, F1s, Fs2s
+end
+
 function main()
     MPI.Init()
     comm = MPI.COMM_WORLD
     root = 0
     rank = MPI.Comm_rank(comm)
 
-    # rslist = [[0.01, 0.1, 0.25, 0.5]; 1:1:10]
-    rslist = [[0.01, 0.1, 0.25, 0.5]; 1:0.5:10]
+    # rslist = [1, 10]
+    rslist = [[0.01, 0.1, 0.25, 0.5]; 1:1:10]
+    # rslist = [[0.01, 0.1, 0.25, 0.5]; 1:0.5:10]
     beta = 40.0
+
+    ### Static (Yukawa) interaction
+
+    # test_yukawa_tree_level_neft()
+    # test_yukawa_one_loop_neft()
+
+    ### Dynamic (KO+) interaction
 
     z_renorm = false
     plots = true
     debug = true
     verbose = true
     show_progress = true
+
+    vertex_plots = false
+    box_plots = false
     direct_box_plots = false
 
-    # ftype = "Fs"  # f^{Di} + f^{Ex} / 2
-    ftype = "Fa"  # f^{Ex} / 2
+    # KO+ interaction
+    # isDynamic = true
+
+    # Yukawa interaction
+    isDynamic = false
+
+    ftype = "Fs"  # f^{Di} + f^{Ex} / 2
+    # ftype = "Fa"  # f^{Ex} / 2
     ftypestr = ftype == "Fs" ? "F^{s}" : "F^{a}"
-    zstr = z_renorm ? "z_renorm" : ""
 
-    # # nk ≈ na ≈ 100 is sufficiently converged for all relevant euv/rtol
-    # Nk, Ok = 7, 6
-    # Na, Oa = 8, 7
+    interactionstr = isDynamic ? "" : "_yukawa"
+    zstr = z_renorm ? "_z_renorm" : ""
 
-    Nk, Ok = 11, 5
-    Na, Oa = 12, 7
+    # nk ≈ na ≈ 100 is sufficiently converged for all relevant euv/rtol
+    Nk, Ok = 7, 6
+    Na, Oa = 8, 7
 
-    # DLR parameters for which R(q, 0) is smooth in the q → 0 limit (tested for rs = 1, 10)
+    # # nk ≈ na ≈ 150
+    # Nk, Ok = 11, 5
+    # Na, Oa = 12, 7
+
+    # DLR parameters for which r(q, 0) is smooth in the q → 0 limit (tested for rs = 1, 10)
     euv = 10.0
     rtol = 1e-7
 
-    # rs for direct box plots
-    rs = 10.0
+    # # rs for direct box plots
+    # rs = 10.0
+    # basic_param = Parameter.rydbergUnit(1.0 / beta, rs, 3)
+    # mass2 = isDynamic ? 1e-5 : basic_param.qTF^2
 
-    # RPA
-    param_rpa =
-        OneLoopParams(; rs=rs, beta=beta, euv=euv, rtol=rtol, Nk=Nk, Ok=Ok, Na=Na, Oa=Oa)
+    # # RPA
+    # param_rpa = OneLoopParams(;
+    #     rs=rs,
+    #     beta=beta,
+    #     euv=euv,
+    #     rtol=rtol,
+    #     Nk=Nk,
+    #     Ok=Ok,
+    #     Na=Na,
+    #     Oa=Oa,
+    #     isDynamic=isDynamic,
+    #     mass2=mass2,
+    # )
 
-    # ~ -2 when rs=10, -0.95 when rs=5, and -0.17 when rs=1
-    Fs = -get_Fs(param_rpa.basic)
+    # # ~ -2 when rs=10, -0.95 when rs=5, and -0.17 when rs=1
+    # Fs = -get_Fs(param_rpa.basic)
 
-    # KO+
-    param_kop = OneLoopParams(;
-        rs=rs,
-        beta=beta,
-        Fs=Fs,
-        euv=euv,
-        rtol=rtol,
-        Nk=Nk,
-        Ok=Ok,
-        Na=Na,
-        Oa=Oa,
-    )
-    check_sign_Fs(param_kop)
+    # # KO+
+    # param_kop = OneLoopParams(;
+    #     rs=rs,
+    #     beta=beta,
+    #     Fs=Fs,
+    #     euv=euv,
+    #     rtol=rtol,
+    #     Nk=Nk,
+    #     Ok=Ok,
+    #     Na=Na,
+    #     Oa=Oa,
+    #     isDynamic=isDynamic,
+    #     mass2=mass2,
+    # )
+    # check_sign_Fs(param_kop)
 
-    # Precompute the interaction R(q, iνₘ)
-    initialize_one_loop_params!(param_rpa)
-    initialize_one_loop_params!(param_kop)
+    # # Precompute the interaction r(q, iνₘ)
+    # initialize_one_loop_params!(param_rpa)
+    # initialize_one_loop_params!(param_kop)
 
-    # Test direct box integrand
-    for which in ["both", "ladder", "crossed"]
-        println_root("\n$which direct box diagrams:")
-        println_root("RPA:")
-        println_root(
-            one_loop_direct_box_diagrams(
-                param_rpa;
-                show_progress=show_progress,
-                which=which,
-            ),
-        )
-        println_root("KO+:")
-        println_root(
-            one_loop_direct_box_diagrams(
-                param_kop;
-                show_progress=show_progress,
-                which=which,
-            ),
-        )
-    end
+    # # Test direct box integrand
+    # for which in ["both", "ladder", "crossed"]
+    #     println_root("\n$which direct box diagrams:")
+    #     println_root("RPA:")
+    #     println_root(
+    #         one_loop_direct_box_diagrams(
+    #             param_rpa;
+    #             show_progress=show_progress,
+    #             which=which,
+    #         ),
+    #     )
+    #     println_root("KO+:")
+    #     println_root(
+    #         one_loop_direct_box_diagrams(
+    #             param_kop;
+    #             show_progress=show_progress,
+    #             which=which,
+    #         ),
+    #     )
+    # end
 
-    # Direct box integrand plots
-    if direct_box_plots && rank == root
-        for which in ["both", "ladder", "crossed"]
-            plot_direct_box_matsubara_summand(param_rpa; which=which)
-            plot_direct_box_matsubara_sum(param_rpa; which=which)
-            plot_direct_box_matsubara_summand(param_kop; which=which)
-            plot_direct_box_matsubara_sum(param_kop; which=which)
-        end
-    end
-    return
+    # if rank == root
+    #     # Vertex integrand plots
+    #     if vertex_plots
+    #         plot_vertex_matsubara_summand(param_rpa)
+    #         plot_vertex_matsubara_sum(param_rpa)
+    #         # plot_vertex_matsubara_summand(param_kop)
+    #         # plot_vertex_matsubara_sum(param_kop)
+    #     end
+    #     # Box integrand plots
+    #     if box_plots
+    #         plot_box_matsubara_summand(param_rpa; ftype=ftype)
+    #         plot_box_matsubara_sum(param_rpa; ftype=ftype)
+    #         # plot_box_matsubara_summand(param_kop; ftype=ftype)
+    #         # plot_box_matsubara_sum(param_kop; ftype=ftype)
+    #     end
+    #     # Direct box integrand plots
+    #     if direct_box_plots
+    #         for which in ["both", "ladder", "crossed"]
+    #             plot_direct_box_matsubara_summand(param_rpa; which=which)
+    #             plot_direct_box_matsubara_sum(param_rpa; which=which)
+    #             # plot_direct_box_matsubara_summand(param_kop; which=which)
+    #             # plot_direct_box_matsubara_sum(param_kop; which=which)
+    #         end
+    #     end
+    # end
+    # return
 
     Fs_DMCs = []
     Fa_DMCs = []
@@ -1137,6 +1735,7 @@ function main()
             testdlr(rs, euv, rtol; verbose=verbose)
         end
         basic_param = Parameter.rydbergUnit(1.0 / beta, rs, 3)
+        mass2 = isDynamic ? 1e-5 : basic_param.qTF^2
         Fs_DMC = -get_Fs(basic_param)
         Fa_DMC = -get_Fa(basic_param)
         println_root("\nrs = $rs:")
@@ -1151,6 +1750,8 @@ function main()
             Ok=Ok,
             Na=Na,
             Oa=Oa,
+            isDynamic=isDynamic,
+            mass2=mass2,
         )
         if debug && rank == root && rs > 0.25
             check_sign_Fs(param)
@@ -1162,7 +1763,7 @@ function main()
             println_root("euv=$(param.euv), rtol=$(param.rtol)")
             println_root("\nrs=$(param.rs), beta=$(param.beta), Fs=$(Fs_DMC), Fa=$(Fa_DMC)")
         end
-        initialize_one_loop_params!(param)  # precompute the interaction interpoland R(q, iνₘ)
+        initialize_one_loop_params!(param)  # precompute the interaction interpoland r(q, iνₘ)
         F1, F2v, F2b, F2ct, F2z, F2 = get_one_loop_Fs(
             param;
             verbose=verbose,
@@ -1190,17 +1791,105 @@ function main()
         println(F2zs)
         println(F2s)
 
+        FsDMCs, FaDMCs, F1NEFTs, Fs2NEFTs =
+            get_yukawa_one_loop_neft(rslist, beta; neval=1e6)
+        FtotalNEFTs = F1NEFTs .+ Fs2NEFTs
+
+        # Get Thomas-Fermi result for F1 using exact expression
+        F1s_exact = get_F1_TF.(LinRange(0, 10, 1000))
+
+        fig, ax = plt.subplots(; figsize=(5, 5))
+        # Exact tree-level expression
+        ax.plot(
+            LinRange(0, 10, 1000),
+            1 .+ F1s_exact,
+            "-";
+            label="\$1 + F^s_1 \\xi\$ (exact)",
+            color=cdict["grey"],
+        )
+        # NEFT benchmark
+        ax.errorbar(
+            rslist,
+            1 .+ Measurements.value.(F1NEFTs),
+            Measurements.uncertainty.(F1NEFTs);
+            label="\$1 + F^s_1 \\xi\$ (NEFT)",
+            capthick=1,
+            capsize=4,
+            fmt="o-",
+            ms=5,
+            color=cdict["blue"],
+        )
+        ax.errorbar(
+            rslist,
+            1 .+ Measurements.value.(Fs2NEFTs),
+            Measurements.uncertainty.(Fs2NEFTs);
+            label="\$1 + F^s_2 \\xi^2\$ (NEFT)",
+            capthick=1,
+            capsize=4,
+            fmt="o-",
+            ms=5,
+            color=cdict["magenta"],
+        )
+        ax.errorbar(
+            rslist,
+            1 .+ Measurements.value.(FtotalNEFTs),
+            Measurements.uncertainty.(FtotalNEFTs);
+            label="\$1 + F^s_1 \\xi + F^s_2 \\xi^2\$ (NEFT)",
+            # label="\$\\kappa_0 / \\kappa \\approx 1 + F^s_1 \\xi + F^s_2 \\xi^2\$ (NEFT)",
+            capthick=1,
+            capsize=4,
+            fmt="o-",
+            ms=5,
+            color=cdict["orange"],
+        )
+        # Our results
+        error = 1e-6 * ones(length(rslist))
+        fp1label = ftype == "Fs" ? "\$\\kappa_0 / \\kappa\$" : "\$\\chi_0 / \\chi\$"
+        fdata = ftype == "Fs" ? Fs_DMCs : Fa_DMCs
+        fp1type = ftype == "Fs" ? "kappa0_over_kappa" : "chi0_over_chi"
+        ax.plot(spline(rslist, 1.0 .+ fdata, error)...; label=fp1label, color=cdict["grey"])
+        ax.plot(
+            spline(rslist, 1.0 .+ F1s, error)...;
+            label="\$1 + {$ftypestr}_1 \\xi\$",
+            color=cdict["orange"],
+        )
+        ax.plot(
+            spline(rslist, 1.0 .+ F2s, error)...;
+            label="\$1 + {$ftypestr}_2 \\xi^2\$",
+            color=cdict["blue"],
+        )
+        ax.plot(
+            spline(rslist, 1.0 .+ F1s .+ F2s, error)...;
+            label="\$1 + {$ftypestr}_1 \\xi + {$ftypestr}_2 \\xi^2\$",
+            color=cdict["black"],
+        )
+        ax.set_xlabel("\$r_s\$")
+        ax.set_ylabel("\$F^s\$")
+        ax.legend(; ncol=1, fontsize=14, loc="best")
+        plt.tight_layout()
+        fig.savefig("kappa0_over_kappa_yukawa_vs_rs.pdf")
+        plt.close(fig)
+
         # Plot spline fits to data vs rs
         fig, ax = plt.subplots(; figsize=(5, 5))
         error = 1e-6 * ones(length(rslist))
         flabel = ftype == "Fs" ? "\$F^{s}_{\\text{DMC}}\$" : "\$F^{a}_{\\text{DMC}}\$"
         fdata = ftype == "Fs" ? Fs_DMCs : Fa_DMCs
         ax.plot(spline(rslist, fdata, error)...; label=flabel, color=cdict["grey"])
-        ax.plot(spline(rslist, F1s, error)...; label="\$F_1 \\xi\$", color=cdict["orange"])
+        ax.plot(
+            spline(rslist, F1s, error)...;
+            label="\${$ftypestr}_1 \\xi\$",
+            color=cdict["orange"],
+        )
+        ax.plot(
+            spline(rslist, F2s, error)...;
+            label="\${$ftypestr}_2 \\xi^2\$",
+            color=cdict["blue"],
+        )
         ax.plot(
             spline(rslist, F1s .+ F2s, error)...;
-            label="\$F_1 \\xi + F_2 \\xi^2\$",
-            color=cdict["blue"],
+            label="\${$ftypestr}_1 \\xi + {$ftypestr}_2 \\xi^2\$",
+            color=cdict["black"],
         )
         ax.plot(
             spline(rslist, F2vs, error)...;
@@ -1217,11 +1906,13 @@ function main()
             label="\${$ftypestr}_{\\text{ct},2}\$",
             color=cdict["teal"],
         )
-        ax.plot(
-            spline(rslist, F2zs, error)...;
-            label="\${$ftypestr}_{\\text{z},2}\$",
-            color=cdict["red"],
-        )
+        if z_renorm
+            ax.plot(
+                spline(rslist, F2zs, error)...;
+                label="\${$ftypestr}_{\\text{z},2}\$",
+                color=cdict["red"],
+            )
+        end
         ax.set_xlabel("\$r_s\$")
         ax.set_xlim(0, maximum(rslist))
         ax.set_ylim(-5.5, 5.5)
@@ -1233,7 +1924,49 @@ function main()
             title="\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$",
         )
         fig.tight_layout()
-        fig.savefig("oneshot_one_loop_$(ftype)_vs_rs_euv=$(euv)_rtol=$(rtol)_$(zstr).pdf")
+        fig.savefig(
+            "oneshot_one_loop_$(ftype)_vs_rs_euv=$(euv)_rtol=$(rtol)$(zstr)$(interactionstr).pdf",
+        )
+        plt.close(fig)
+
+        # Plot spline fits to just 1+FDMC, 1+F1, 1+F2 and 1+F1+F2 vs rs
+        fig, ax = plt.subplots(; figsize=(5, 5))
+        error = 1e-6 * ones(length(rslist))
+        fp1label = ftype == "Fs" ? "\$\\kappa_0 / \\kappa\$" : "\$\\chi_0 / \\chi\$"
+        fdata = ftype == "Fs" ? Fs_DMCs : Fa_DMCs
+        fp1type = ftype == "Fs" ? "kappa0_over_kappa" : "chi0_over_chi"
+        # ax.plot(spline(rslist, 1.0 .+ fdata, error)...; label=flabel, color=cdict["grey"])
+        ax.plot(spline(rslist, 1.0 .+ fdata, error)...; label=fp1label, color=cdict["grey"])
+        ax.plot(
+            spline(rslist, 1.0 .+ F1s, error)...;
+            label="\$1 + {$ftypestr}_1 \\xi\$",
+            color=cdict["orange"],
+        )
+        ax.plot(
+            spline(rslist, 1.0 .+ F2s, error)...;
+            label="\$1 + {$ftypestr}_2 \\xi^2\$",
+            color=cdict["blue"],
+        )
+        ax.plot(
+            spline(rslist, 1.0 .+ F1s .+ F2s, error)...;
+            label="\$1 + {$ftypestr}_1 \\xi + {$ftypestr}_2 \\xi^2\$",
+            color=cdict["black"],
+        )
+        ax.set_xlabel("\$r_s\$")
+        ax.set_xlim(0, maximum(rslist))
+        ax.set_ylim(-0.5, 2.0)
+        ax.legend(;
+            ncol=2,
+            loc="best",
+            fontsize=14,
+            title_fontsize=16,
+            title="\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$",
+        )
+        fig.tight_layout()
+        fig.savefig(
+            # "oneshot_one_loop_$(ftype)_vs_rs_euv=$(euv)_rtol=$(rtol)$(zstr)$(interactionstr)_zoom.pdf",
+            "oneshot_one_loop_$(fp1type)_vs_rs_euv=$(euv)_rtol=$(rtol)$(zstr)$(interactionstr)_zoom.pdf",
+        )
         plt.close(fig)
     end
     MPI.Finalize()
