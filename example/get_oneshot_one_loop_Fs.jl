@@ -305,14 +305,16 @@ Leading-order (one-loop) correction to Z_F.
 """
 function get_Z1(param::OneLoopParams, kgrid::KGT) where {KGT<:AbstractVector}
     if param.isDynamic == false
-        return 1.0
+        # the one-loop self-energy is frequency independent for the Thomas-Fermi interaction
+        return 0.0
     end
     sigma1 = Σ1(param, kgrid)
     return zfactor_fermi(param.basic, sigma1)  # compute Z_F using improved finite-temperature scaling
 end
 function get_Z1(param::OneLoopParams)
     if param.isDynamic == false
-        return 1.0
+        # the one-loop self-energy is frequency independent for the Thomas-Fermi interaction
+        return 0.0
     end
     @unpack kF = param
     kgrid =
@@ -385,8 +387,8 @@ end
 # 2R(z1 - f1 Π0) - f1 Π0 f1
 function one_loop_counterterms(param::OneLoopParams; kwargs...)
     @unpack rs, kF, EF, NF, Fs, basic, isDynamic = param
-    if isDynamic
-        @assert param.mass2 == param.qTF "Counterterms currently only implemented for the Thomas-Fermi interaction (Yukawa mass = qTF)!"
+    if isDynamic == false
+        @assert param.mass2 ≈ param.qTF^2 "Counterterms currently only implemented for the Thomas-Fermi interaction (Yukawa mass = qTF)!"
     end
     rstilde = rs * alpha_ueg / π
 
@@ -406,13 +408,17 @@ function one_loop_counterterms(param::OneLoopParams; kwargs...)
     # Π₀(q, iν=0) = -NF * 𝓁(q / 2kF)
     Π0 = -NF * lindhard.(xgrid)
 
-    # A = z₁ + 2 ∫₀¹ dx x R(x, 0) Π₀(x, 0)
-    A = z1 + Interp.integrate1D(2 * x_R0 .* Π0, xgrid)
+    # BUGGY!
+    # # A = z₁ + 2 ∫₀¹ dx x R(x, 0) Π₀(x, 0)
+    # A = z1 + Interp.integrate1D(2 * x_R0 .* Π0, xgrid)
+
+    # A = z₁ + ∫₀¹ dx x R(x, 0) Π₀(x, 0)
+    A = z1 + Interp.integrate1D(x_R0 .* Π0, xgrid)
 
     # B = ∫₀¹ dx x Π₀(x, 0) / NF
     B = Interp.integrate1D(xgrid .* Π0 / NF, xgrid)
 
-    # 2R(z1 - f1 Π0) - f1 Π0 f1 = 2 F1 A + F1² B
+    # (NF/2)*⟨2R(z1 - f1 Π0) - f1 Π0 f1⟩ = -2 F1 A - F1² B
     vertex_cts = -(2 * F1 * A + F1^2 * B)
     # vertex_cts = 2 * F1 * A + F1^2 * B
     return vertex_cts
@@ -445,6 +451,7 @@ Dimensionless Yukawa interaction, r_yukawa(q) = NF * V_yukawa(q) = qTF^2 / (q^2 
 """
 function r_yukawa_data(param::OneLoopParams)
     @unpack qgrid_interp, qTF, mass2 = param
+    @assert mass2 ≈ qTF^2
     r_yukawa(q) = qTF^2 / (q^2 + mass2)
     return r_yukawa.(qgrid_interp)
 end
@@ -1480,7 +1487,7 @@ function get_yukawa_one_loop_neft(rslist, beta; neval=1e6, seed=1234)
         rs=0.01,
         beta=beta,
         Fs=0.0,
-        order=2,
+        order=1,
         mass2=0.0,
         isDynamic=false,
     )
@@ -1511,7 +1518,7 @@ function get_yukawa_one_loop_neft(rslist, beta; neval=1e6, seed=1234)
             rs=rs,
             beta=beta,
             Fs=0.0,
-            order=2,
+            order=1,
             mass2=qTF^2,  # for a particularly simple dimensionless interaction
             isDynamic=false,
         )
@@ -1594,6 +1601,7 @@ function main()
 
     # test_yukawa_tree_level_neft()
     # test_yukawa_one_loop_neft()
+    # return
 
     ### Dynamic (KO+) interaction
 
@@ -1796,78 +1804,109 @@ function main()
         FtotalNEFTs = F1NEFTs .+ Fs2NEFTs
 
         # Get Thomas-Fermi result for F1 using exact expression
-        F1s_exact = get_F1_TF.(LinRange(0, 10, 1000))
+        rs_exact = LinRange(0, 10, 1000)
+        F1s_exact = get_F1_TF.(rs_exact)
+
+        # Get Thomas-Fermi result for F1 using exact expressionk
+        function F2ct_exact(rs)
+            xgrid =
+                CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+            rstilde = rs * alpha_ueg / π
+            F1 = get_F1_TF(rs)
+            A = Interp.integrate1D(
+                lindhard.(xgrid) .* (xgrid * rstilde) ./ (xgrid .^ 2 .+ rstilde),
+                xgrid,
+            )
+            B = Interp.integrate1D(lindhard.(xgrid) .* xgrid, xgrid)
+            return 2 * F1 * A + F1^2 * B
+        end
+        F2cts_exact = F2ct_exact.(rs_exact)
 
         fig, ax = plt.subplots(; figsize=(5, 5))
-        # Exact tree-level expression
-        ax.plot(
-            LinRange(0, 10, 1000),
-            1 .+ F1s_exact,
-            "-";
-            label="\$1 + F^s_1 \\xi\$ (exact)",
-            color=cdict["grey"],
-        )
         # NEFT benchmark
         ax.errorbar(
             rslist,
-            1 .+ Measurements.value.(F1NEFTs),
+            # 1 .+ Measurements.value.(F1NEFTs),
+            Measurements.value.(F1NEFTs),
             Measurements.uncertainty.(F1NEFTs);
-            label="\$1 + F^s_1 \\xi\$ (NEFT)",
+            label="\$F^s_1 \\xi\$ (NEFT)",
             capthick=1,
             capsize=4,
-            fmt="o-",
+            fmt="o",
             ms=5,
-            color=cdict["blue"],
+            color=cdict["cyan"],
         )
         ax.errorbar(
             rslist,
-            1 .+ Measurements.value.(Fs2NEFTs),
+            # 1 .+ Measurements.value.(Fs2NEFTs),
+            Measurements.value.(Fs2NEFTs),
             Measurements.uncertainty.(Fs2NEFTs);
-            label="\$1 + F^s_2 \\xi^2\$ (NEFT)",
+            label="\$F^s_2 \\xi^2\$ (NEFT)",
             capthick=1,
             capsize=4,
-            fmt="o-",
+            fmt="o",
             ms=5,
             color=cdict["magenta"],
         )
         ax.errorbar(
             rslist,
-            1 .+ Measurements.value.(FtotalNEFTs),
+            # 1 .+ Measurements.value.(FtotalNEFTs),
+            Measurements.value.(FtotalNEFTs),
             Measurements.uncertainty.(FtotalNEFTs);
-            label="\$1 + F^s_1 \\xi + F^s_2 \\xi^2\$ (NEFT)",
+            label="\$F^s_1 \\xi + F^s_2 \\xi^2\$ (NEFT)",
             # label="\$\\kappa_0 / \\kappa \\approx 1 + F^s_1 \\xi + F^s_2 \\xi^2\$ (NEFT)",
             capthick=1,
             capsize=4,
-            fmt="o-",
+            fmt="o",
             ms=5,
-            color=cdict["orange"],
+            color=cdict["teal"],
         )
         # Our results
         error = 1e-6 * ones(length(rslist))
         fp1label = ftype == "Fs" ? "\$\\kappa_0 / \\kappa\$" : "\$\\chi_0 / \\chi\$"
         fdata = ftype == "Fs" ? Fs_DMCs : Fa_DMCs
         fp1type = ftype == "Fs" ? "kappa0_over_kappa" : "chi0_over_chi"
-        ax.plot(spline(rslist, 1.0 .+ fdata, error)...; label=fp1label, color=cdict["grey"])
+        if isDynamic
+            ax.plot(
+                # spline(rslist, 1.0 .+ fdata, error)...;
+                spline(rslist, fdata, error)...;
+                label=fp1label,
+                color=cdict["grey"],
+            )
+        end
         ax.plot(
-            spline(rslist, 1.0 .+ F1s, error)...;
-            label="\$1 + {$ftypestr}_1 \\xi\$",
+            # spline(rslist, 1.0 .+ F1s, error)...;
+            # label="\$1 + {$ftypestr}_1 \\xi\$",
+            spline(rslist, F1s, error)...;
+            label="\${$ftypestr}_1 \\xi\$",
             color=cdict["orange"],
         )
         ax.plot(
-            spline(rslist, 1.0 .+ F2s, error)...;
-            label="\$1 + {$ftypestr}_2 \\xi^2\$",
+            # spline(rslist, 1.0 .+ F2s, error)...;
+            # label="\$1 + {$ftypestr}_2 \\xi^2\$",
+            spline(rslist, F2s, error)...;
+            label="\${$ftypestr}_2 \\xi^2\$",
             color=cdict["blue"],
         )
         ax.plot(
-            spline(rslist, 1.0 .+ F1s .+ F2s, error)...;
-            label="\$1 + {$ftypestr}_1 \\xi + {$ftypestr}_2 \\xi^2\$",
+            # spline(rslist, 1.0 .+ F1s .+ F2s, error)...;
+            # label="\$1 + {$ftypestr}_1 \\xi + {$ftypestr}_2 \\xi^2\$",
+            spline(rslist, F1s .+ F2s, error)...;
+            label="\${$ftypestr}_1 \\xi + {$ftypestr}_2 \\xi^2\$",
             color=cdict["black"],
         )
         ax.set_xlabel("\$r_s\$")
         ax.set_ylabel("\$F^s\$")
-        ax.legend(; ncol=1, fontsize=14, loc="best")
+        # ax.set_ylabel("\${\\kappa_0}/{\\kappa} \\approx 1 + F^s\$")
+        if isDynamic == false
+            # ax.set_ylim(0.58, 1.42)
+            ax.set_ylim(-0.42, 0.42)
+        end
+        # ax.set_ylabel("\$F^s\$")
+        ax.legend(; ncol=2, fontsize=12, loc="best", columnspacing=0.5)
         plt.tight_layout()
-        fig.savefig("kappa0_over_kappa_yukawa_vs_rs.pdf")
+        fig.savefig("oneshot_one_loop_$(ftype)_yukawa_vs_rs$(interactionstr).pdf")
+        # fig.savefig("kappa0_over_kappa_yukawa_vs_rs.pdf")
         plt.close(fig)
 
         # Plot spline fits to data vs rs
@@ -1875,7 +1914,9 @@ function main()
         error = 1e-6 * ones(length(rslist))
         flabel = ftype == "Fs" ? "\$F^{s}_{\\text{DMC}}\$" : "\$F^{a}_{\\text{DMC}}\$"
         fdata = ftype == "Fs" ? Fs_DMCs : Fa_DMCs
-        ax.plot(spline(rslist, fdata, error)...; label=flabel, color=cdict["grey"])
+        if isDynamic
+            ax.plot(spline(rslist, fdata, error)...; label=flabel, color=cdict["grey"])
+        end
         ax.plot(
             spline(rslist, F1s, error)...;
             label="\${$ftypestr}_1 \\xi\$",
@@ -1906,6 +1947,14 @@ function main()
             label="\${$ftypestr}_{\\text{ct},2}\$",
             color=cdict["teal"],
         )
+        # Exact CT expression
+        ax.plot(
+            rs_exact,
+            F2cts_exact,
+            "--";
+            label="\${$ftypestr}_{\\text{ct},2}\$ (exact)",
+            color=cdict["red"],
+        )
         if z_renorm
             ax.plot(
                 spline(rslist, F2zs, error)...;
@@ -1915,13 +1964,17 @@ function main()
         end
         ax.set_xlabel("\$r_s\$")
         ax.set_xlim(0, maximum(rslist))
-        ax.set_ylim(-5.5, 5.5)
+        if isDynamic
+            ax.set_ylim(-5.5, 5.5)
+        else
+            ax.set_ylim(-0.42, 0.42)
+        end
         ax.legend(;
             ncol=2,
             loc="upper left",
-            fontsize=14,
+            fontsize=12,
             title_fontsize=16,
-            title="\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$",
+            title=isDynamic ? "\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$" : nothing,
         )
         fig.tight_layout()
         fig.savefig(
@@ -1935,8 +1988,14 @@ function main()
         fp1label = ftype == "Fs" ? "\$\\kappa_0 / \\kappa\$" : "\$\\chi_0 / \\chi\$"
         fdata = ftype == "Fs" ? Fs_DMCs : Fa_DMCs
         fp1type = ftype == "Fs" ? "kappa0_over_kappa" : "chi0_over_chi"
-        # ax.plot(spline(rslist, 1.0 .+ fdata, error)...; label=flabel, color=cdict["grey"])
-        ax.plot(spline(rslist, 1.0 .+ fdata, error)...; label=fp1label, color=cdict["grey"])
+        if isDynamic
+            # ax.plot(spline(rslist, 1.0 .+ fdata, error)...; label=flabel, color=cdict["grey"])
+            ax.plot(
+                spline(rslist, 1.0 .+ fdata, error)...;
+                label=fp1label,
+                color=cdict["grey"],
+            )
+        end
         ax.plot(
             spline(rslist, 1.0 .+ F1s, error)...;
             label="\$1 + {$ftypestr}_1 \\xi\$",
@@ -1954,13 +2013,15 @@ function main()
         )
         ax.set_xlabel("\$r_s\$")
         ax.set_xlim(0, maximum(rslist))
-        ax.set_ylim(-0.5, 2.0)
+        if isDynamic
+            ax.set_ylim(-0.5, 2.0)
+        end
         ax.legend(;
             ncol=2,
             loc="best",
-            fontsize=14,
+            fontsize=12,
             title_fontsize=16,
-            title="\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$",
+            title=isDynamic ? "\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$" : nothing,
         )
         fig.tight_layout()
         fig.savefig(
