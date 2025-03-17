@@ -248,31 +248,6 @@ function integrand_F1(x, rs_tilde, Fs=0.0)
 end
 
 """
-Solve I0[F+] = F+ / 2 to obtain the tree-level self-consistent value for F⁰ₛ.
-"""
-function get_tree_level_self_consistent_Fs(rs::Float64)
-    function I0_R(x, y)
-        ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
-        integrand = [integrand_F1(t, x * alpha_ueg / π, y) for t in ts]
-        integral = Interp.integrate1D(integrand, ts)
-        return integral
-    end
-    F1_sc = find_zero(Fp -> I0_R(rs, Fp) - Fp / 2, (-20.0, 20.0))
-    return F1_sc
-end
-function get_tree_level_self_consistent_Fs(param::OneLoopParams)
-    @unpack rs = param
-    function I0_R(x, y)
-        ts = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
-        integrand = [integrand_F1(t, x * alpha_ueg / π, y) for t in ts]
-        integral = Interp.integrate1D(integrand, ts)
-        return integral
-    end
-    F1_sc = find_zero(Fp -> I0_R(rs, Fp) - Fp / 2, (-20.0, 20.0))
-    return F1_sc
-end
-
-"""
 The one-loop (GW) self-energy Σ₁.
 """
 function Σ1(param::OneLoopParams, kgrid::KGT) where {KGT<:AbstractVector}
@@ -351,16 +326,6 @@ function get_F1_TF(rs)
     F1 = (rstilde / 2) * log(rstilde / (rstilde + 1))
     return F1
 end
-
-# function integrand_F1(x, rs_tilde, Fs=0.0)
-#     if isinf(rs_tilde)
-#         return -x / lindhard(x)
-#     end
-#     coeff = rs_tilde + Fs * x^2
-#     # NF (R + f)
-#     NF_times_Rpf_ex = coeff / (x^2 + coeff * lindhard(x))
-#     return -x * NF_times_Rpf_ex
-# end
 
 function x_NF_R0(x, rs_tilde, Fs=0.0)
     if isinf(rs_tilde)
@@ -1496,6 +1461,7 @@ function get_yukawa_one_loop_neft(rslist, beta; neval=1e6, seed=1234)
     filter = [Proper, NoHartree]  # Proper => only exchange and box-type direct diagrams contribute to F₂
 
     # returns: (partition, diagpara, FeynGraphs, extT_labels, spin_conventions)
+    # graphs contain: {{↑↑ diags}, {↑↓ diags}}
     diagrams = Diagram.diagram_parquet_response(
         :vertex4,
         dummy_paramc,
@@ -1504,14 +1470,21 @@ function get_yukawa_one_loop_neft(rslist, beta; neval=1e6, seed=1234)
         transferLoop=zeros(16),  # (Q,Ω) → 0
     )
     graphs = diagrams[3]
+    isUpUp =
+        Dict(P => [g.properties.response == UpUp for g in graphs[P]] for P in keys(graphs))
+    isUpDown = Dict(
+        P => [g.properties.response == UpDown for g in graphs[P]] for P in keys(graphs)
+    )
     println("Tree-level computational graphs from Diagram.diagram_parquet_response:")
     print_tree(graphs)
+    println("isUpUp: $isUpUp")
+    println("isUpDown: $isUpDown")
 
-    FsDMCs = []
-    FaDMCs = []
     F1s = []
     Fs2s = []
     Fa2s = []
+    Fuu2s = []
+    Fud2s = []
     for rs in rslist
         println("\nrs = $rs:")
         qTF = Parameter.rydbergUnit(1.0 / beta, rs, 3).qTF
@@ -1553,45 +1526,53 @@ function get_yukawa_one_loop_neft(rslist, beta; neval=1e6, seed=1234)
         # (0, 0, 1)
         obs_ict = real(data[p[4]])
 
-        # Fp = -real(obs[1] + obs[2]) # upup + updn, extra minus sign, factor of 1/2 already included in lavg
-        # Fm = -real(obs[1] - obs[2]) # upup - updn, extra minus sign, factor of 1/2 already included in lavg
-        # println("Fp = $Fp, Fm = $Fm")
+        @assert length(obs_tl) == 2                  # obs = {↑↑Ins, ↑↓Ins}
+        @assert length(obs) == length(obs_ict) == 6  # obs = {PHr ↑↑Dyn, PPr ↑↑Dyn, PHEr ↑↑Dyn, PHr ↑↓Dyn, PPr ↑↓Dyn, PHEr ↑↓Dyn}
 
-        # TODO: understand this! why the minus sign, and why do Fs/Fa appear flipped?
-        fudge_factor = -0.5
+        F1uu = -isUpUp' * obs_tl
+        F1ud = -isUpDown' * obs_tl
 
-        exchange_tl = fudge_factor * (obs_tl[1] - obs_tl[2])
+        F2uu = -isUpUp' * obs
+        F2ud = -isUpDown' * obs
 
-        exchange_s = fudge_factor * (obs[1] - obs[2])
-        exchange_ct_s = fudge_factor * (obs_ict[1] - obs_ict[2])
+        F2ctuu = -isUpUp' * obs_ict
+        F2ctud = -isUpDown' * obs_ict
 
-        exchange_a = fudge_factor * (obs[1] + obs[2])
-        exchange_ct_a = fudge_factor * (obs_ict[1] + obs_ict[2])
+        println("(tree-level)\tup-up: $F1uu, up-down: $F1ud")
+        println("(one-loop diagrams)\tup-up: $F2uu, up-down: $F2ud")
+        println("(one-loop counterterms)\tup-up: $F2ctuu, up-down: $F2ctud")
 
-        println(
-            "(tree-level)\tup-up: $(obs_tl[1]), up-down: $(obs_tl[2]), exchange: $(exchange_tl)",
-        )
-        println(
-            "(one-loop diagrams)\tup-up: $(obs[1]), up-down: $(obs[2]), exchange: $(exchange_s)",
-        )
-        println(
-            "(one-loop counterterms)\tup-up: $(obs_ict[1]), up-down: $(obs_ict[2]), exchange: $(exchange_ct_s)",
-        )
+        Fp(Fuu, Fud) = (Fuu + Fud) / 2
+        Fm(Fuu, Fud) = (Fuu - Fud) / 2
 
-        F1 = exchange_tl
-        F2s = exchange_s + exchange_ct_s
-        F2a = exchange_a + exchange_ct_a
+        F1p = Fp(F1uu, F1ud)
+        F1m = Fm(F1uu, F1ud)
+        F1 = F1p
+        @assert F1p ≈ F1m "F1p = $F1p, F1m = $F1m (should be equal!)"
+
+        F2p = Fp(F2uu, F2ud)
+        F2m = Fm(F2uu, F2ud)
+        F2ctp = Fp(F2ctuu, F2ctud)
+        F2ctm = Fm(F2ctuu, F2ctud)
+        F2s = F2p + F2ctp
+        F2a = F2m + F2ctm
+        F2totaluu = F2uu + F2ctuu
+        F2totalud = F2ud + F2ctud
         println("Fs = ($(F1))ξ + ($(F2s))ξ² + O(ξ³)")
         println("Fa = ($(F1))ξ + ($(F2a))ξ² + O(ξ³)")
+        println("F↑↑ = ($(F1uu))ξ + ($(F2totaluu))ξ² + O(ξ³)")
+        println("F↑↓ = ($(F1ud))ξ + ($(F2totalud))ξ² + O(ξ³)")
 
         push!(FsDMCs, Fs_DMC)
         push!(FaDMCs, Fa_DMC)
         push!(F1s, F1)
         push!(Fs2s, F2s)
         push!(Fa2s, F2a)
+        push!(Fuu2s, F2totaluu)
+        push!(Fud2s, F2totalud)
         GC.gc()
     end
-    return FsDMCs, FaDMCs, F1s, Fs2s, Fa2s
+    return FsDMCs, FaDMCs, F1s, Fs2s, Fa2s, Fuu2s, Fud2s
 end
 
 function main()
@@ -1617,20 +1598,11 @@ function main()
     # test_yukawa_one_loop_neft()
     # return
 
-    ### Dynamic (KO+) interaction
-
     z_renorm = false
     plots = true
     debug = true
     verbose = true
     show_progress = true
-
-    vertex_plots = false
-    box_plots = false
-    direct_box_plots = false
-
-    # KO+ interaction
-    # isDynamic = true
 
     # Yukawa interaction
     isDynamic = false
@@ -1646,103 +1618,158 @@ function main()
     Nk, Ok = 7, 6
     Na, Oa = 8, 7
 
-    # # nk ≈ na ≈ 150
-    # Nk, Ok = 11, 5
-    # Na, Oa = 12, 7
-
     # DLR parameters for which r(q, 0) is smooth in the q → 0 limit (tested for rs = 1, 10)
     euv = 10.0
     rtol = 1e-7
 
-    # # rs for direct box plots
-    # rs = 10.0
-    # basic_param = Parameter.rydbergUnit(1.0 / beta, rs, 3)
-    # mass2 = isDynamic ? 1e-5 : basic_param.qTF^2
+    FsDMCs, FaDMCs, F1NEFTs, Fs2NEFTs, Fa2NEFTs, Fuu2NEFTs, Fud2NEFTs =
+        get_yukawa_one_loop_neft(rslist, beta; neval=1e5)
 
-    # # RPA
-    # param_rpa = OneLoopParams(;
-    #     rs=rs,
-    #     beta=beta,
-    #     euv=euv,
-    #     rtol=rtol,
-    #     Nk=Nk,
-    #     Ok=Ok,
-    #     Na=Na,
-    #     Oa=Oa,
-    #     isDynamic=isDynamic,
-    #     mass2=mass2,
-    # )
+    FstotalNEFTs = F1NEFTs .+ Fs2NEFTs
+    FatotalNEFTs = F1NEFTs .+ Fa2NEFTs
+    FuutotalNEFTs = F1NEFTs .+ Fuu2NEFTs
+    FudtotalNEFTs = F1NEFTs .+ Fud2NEFTs
+    F2NEFTs = ftype == "Fs" ? Fs2NEFTs : Fa2NEFTs
+    FtotalNEFTs = ftype == "Fs" ? FstotalNEFTs : FatotalNEFTs
 
-    # # ~ -2 when rs=10, -0.95 when rs=5, and -0.17 when rs=1
-    # Fs = -get_Fs(param_rpa.basic)
+    # Get Thomas-Fermi result for F1 using exact expression
+    rs_exact = LinRange(0, 10, 1000)
+    F1s_exact = get_F1_TF.(rs_exact)
 
-    # # KO+
-    # param_kop = OneLoopParams(;
-    #     rs=rs,
-    #     beta=beta,
-    #     Fs=Fs,
-    #     euv=euv,
-    #     rtol=rtol,
-    #     Nk=Nk,
-    #     Ok=Ok,
-    #     Na=Na,
-    #     Oa=Oa,
-    #     isDynamic=isDynamic,
-    #     mass2=mass2,
-    # )
-    # check_sign_Fs(param_kop)
+    # Get Thomas-Fermi result for F1 using exact expression
+    function F2ct_exact(rs)
+        xgrid = CompositeGrid.LogDensedGrid(:gauss, [0.0, 1.0], [0.0, 1.0], 32, 1e-8, 32)
+        rstilde = rs * alpha_ueg / π
+        F1 = get_F1_TF(rs)
+        A = Interp.integrate1D(
+            lindhard.(xgrid) .* (xgrid * rstilde) ./ (xgrid .^ 2 .+ rstilde),
+            xgrid,
+        )
+        B = Interp.integrate1D(lindhard.(xgrid) .* xgrid, xgrid)
+        return 2 * F1 * A + F1^2 * B
+    end
+    F2cts_exact = F2ct_exact.(rs_exact)
 
-    # # Precompute the interaction r(q, iνₘ)
-    # initialize_one_loop_params!(param_rpa)
-    # initialize_one_loop_params!(param_kop)
+    fig, ax = plt.subplots(; figsize=(5, 5))
+    # NEFT benchmark
+    ax.errorbar(
+        rslist,
+        Measurements.value.(F1NEFTs),
+        Measurements.uncertainty.(F1NEFTs);
+        label="\$F_1 \\xi\$",
+        capthick=1,
+        capsize=4,
+        fmt="o-",
+        ms=5,
+        color=cdict["black"],
+    )
+    ax.errorbar(
+        rslist,
+        Measurements.value.(Fuu2NEFTs),
+        Measurements.uncertainty.(Fuu2NEFTs);
+        label="\$F^{\\uparrow\\uparrow}_2 \\xi^2\$",
+        capthick=1,
+        capsize=4,
+        fmt="o-",
+        ms=5,
+        color=cdict["blue"],
+    )
+    ax.errorbar(
+        rslist,
+        Measurements.value.(Fud2NEFTs),
+        Measurements.uncertainty.(Fud2NEFTs);
+        label="\$F^{\\uparrow\\downarrow}_2 \\xi^2\$",
+        capthick=1,
+        capsize=4,
+        fmt="o-",
+        ms=5,
+        color=cdict["cyan"],
+    )
+    ax.errorbar(
+        rslist,
+        Measurements.value.(FuutotalNEFTs),
+        Measurements.uncertainty.(FuutotalNEFTs);
+        label="\$F^{\\uparrow\\uparrow}\$ to \$\\mathcal{O}(\\xi^2)\$",
+        capthick=1,
+        capsize=4,
+        fmt="o-",
+        ms=5,
+        color=cdict["orange"],
+    )
+    ax.errorbar(
+        rslist,
+        Measurements.value.(FudtotalNEFTs),
+        Measurements.uncertainty.(FudtotalNEFTs);
+        label="\$F^{\\uparrow\\downarrow}\$ to \$\\mathcal{O}(\\xi^2)\$",
+        capthick=1,
+        capsize=4,
+        fmt="o-",
+        ms=5,
+        color=cdict["magenta"],
+    )
+    ax.set_xlabel("\$r_s\$")
+    # ax.set_ylabel("\$F^{\\sigma_1 \\sigma_2}\$")
+    if isDynamic == false && ftype == "Fs"
+        ax.set_ylim(-0.42, 0.42)
+    end
+    # ax.set_ylabel("\$F^s\$")
+    ax.legend(; ncol=2, fontsize=12, loc="best", columnspacing=0.5)
+    plt.tight_layout()
+    fig.savefig("oneshot_one_loop_F_uu_and_ud_yukawa_vs_rs$(interactionstr)_neft.pdf")
+    plt.close(fig)
+    return
 
-    # # Test direct box integrand
-    # for which in ["both", "ladder", "crossed"]
-    #     println_root("\n$which direct box diagrams:")
-    #     println_root("RPA:")
-    #     println_root(
-    #         one_loop_direct_box_diagrams(
-    #             param_rpa;
-    #             show_progress=show_progress,
-    #             which=which,
-    #         ),
-    #     )
-    #     println_root("KO+:")
-    #     println_root(
-    #         one_loop_direct_box_diagrams(
-    #             param_kop;
-    #             show_progress=show_progress,
-    #             which=which,
-    #         ),
-    #     )
-    # end
-
-    # if rank == root
-    #     # Vertex integrand plots
-    #     if vertex_plots
-    #         plot_vertex_matsubara_summand(param_rpa)
-    #         plot_vertex_matsubara_sum(param_rpa)
-    #         # plot_vertex_matsubara_summand(param_kop)
-    #         # plot_vertex_matsubara_sum(param_kop)
-    #     end
-    #     # Box integrand plots
-    #     if box_plots
-    #         plot_box_matsubara_summand(param_rpa; ftype=ftype)
-    #         plot_box_matsubara_sum(param_rpa; ftype=ftype)
-    #         # plot_box_matsubara_summand(param_kop; ftype=ftype)
-    #         # plot_box_matsubara_sum(param_kop; ftype=ftype)
-    #     end
-    #     # Direct box integrand plots
-    #     if direct_box_plots
-    #         for which in ["both", "ladder", "crossed"]
-    #             plot_direct_box_matsubara_summand(param_rpa; which=which)
-    #             plot_direct_box_matsubara_sum(param_rpa; which=which)
-    #             # plot_direct_box_matsubara_summand(param_kop; which=which)
-    #             # plot_direct_box_matsubara_sum(param_kop; which=which)
-    #         end
-    #     end
-    # end
-    # return
+    fig, ax = plt.subplots(; figsize=(5, 5))
+    # NEFT benchmark
+    ax.errorbar(
+        rslist,
+        # 1 .+ Measurements.value.(F1NEFTs),
+        Measurements.value.(F1NEFTs),
+        Measurements.uncertainty.(F1NEFTs);
+        label="\${$ftypestr}_1 \\xi\$ (NEFT)",
+        capthick=1,
+        capsize=4,
+        fmt="o",
+        ms=5,
+        color=cdict["cyan"],
+    )
+    ax.errorbar(
+        rslist,
+        # 1 .+ Measurements.value.(F2NEFTs),
+        Measurements.value.(F2NEFTs),
+        Measurements.uncertainty.(F2NEFTs);
+        label="\${$ftypestr}_2 \\xi^2\$ (NEFT)",
+        capthick=1,
+        capsize=4,
+        fmt="o",
+        ms=5,
+        color=cdict["magenta"],
+    )
+    ax.errorbar(
+        rslist,
+        # 1 .+ Measurements.value.(FtotalNEFTs),
+        Measurements.value.(FtotalNEFTs),
+        Measurements.uncertainty.(FtotalNEFTs);
+        label="\${$ftypestr}_1 \\xi + {$ftypestr}_2 \\xi^2\$ (NEFT)",
+        # label="\$\\kappa_0 / \\kappa \\approx 1 + \${$ftypestr}_1 \\xi + \${$ftypestr}_2 \\xi^2\$ (NEFT)",
+        capthick=1,
+        capsize=4,
+        fmt="o",
+        ms=5,
+        color=cdict["teal"],
+    )
+    ax.set_xlabel("\$r_s\$")
+    ax.set_ylabel("\$$ftypestr\$")
+    # ax.set_ylabel("\${\\kappa_0}/{\\kappa} \\approx 1 + F^s\$")
+    if isDynamic == false && ftype == "Fs"
+        # ax.set_ylim(0.58, 1.42)
+        ax.set_ylim(-0.42, 0.42)
+    end
+    # ax.set_ylabel("\$F^s\$")
+    ax.legend(; ncol=2, fontsize=12, loc="best", columnspacing=0.5)
+    plt.tight_layout()
+    fig.savefig("oneshot_one_loop_$(ftype)_yukawa_vs_rs$(interactionstr)_benchmark.pdf")
+    plt.close(fig)
 
     Fs_DMCs = []
     Fa_DMCs = []
@@ -1819,7 +1846,6 @@ function main()
         FatotalNEFTs = F1NEFTs .+ Fa2NEFTs
         F2NEFTs = ftype == "Fs" ? Fs2NEFTs : Fa2NEFTs
         FtotalNEFTs = ftype == "Fs" ? FstotalNEFTs : FatotalNEFTs
-            
 
         # Get Thomas-Fermi result for F1 using exact expression
         rs_exact = LinRange(0, 10, 1000)
@@ -1992,7 +2018,9 @@ function main()
             loc="upper left",
             fontsize=12,
             title_fontsize=16,
-            title=isDynamic ? "\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$" : nothing,
+            title=isDynamic ?
+                  "\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$" :
+                  nothing,
         )
         fig.tight_layout()
         fig.savefig(
@@ -2030,8 +2058,6 @@ function main()
             color=cdict["black"],
         )
         ax.set_xlabel("\$r_s\$")
-
-        ax.set_ylabel(fp1label * "\$ \\approx 1 + $ftypestr\$")
         ax.set_xlim(0, maximum(rslist))
         if isDynamic && ftype == "Fs"
             ax.set_ylim(-0.5, 2.0)
@@ -2041,7 +2067,9 @@ function main()
             loc="best",
             fontsize=12,
             title_fontsize=16,
-            title=isDynamic ? "\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$" : nothing,
+            title=isDynamic ?
+                  "\$\\Lambda_\\text{UV} = $(Int(round(euv)))\\epsilon_F, \\varepsilon = 10^{$(Int(round(log10(rtol))))}\$" :
+                  nothing,
         )
         fig.tight_layout()
         fig.savefig(
