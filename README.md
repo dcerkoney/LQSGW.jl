@@ -1,3 +1,3 @@
 # LQSGW
 
-[![Build Status](https://github.com/dcerkoney/LQSGW.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/dcerkoney/LQSGW.jl/actions/workflows/CI.yml?query=branch%3Amain)
+Linearized quasiparticle self-consistent GW (LQSGW) method for the uniform electron gas built on top of [ElectronGas.jl](https://github.com/numericalEFT/ElectronGas.jl) and [ElectronLiquid.jl](https://github.com/numericalEFT/ElectronLiquid.jl).
