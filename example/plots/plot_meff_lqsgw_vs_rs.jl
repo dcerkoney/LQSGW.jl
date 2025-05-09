@@ -586,6 +586,7 @@ function plot_mvsrs(
     rs_HDL=nothing,
     meff_HDL=nothing,
     zorder=nothing,
+    fitter=interp.Akima1DInterpolator,
 )
     # Add data in the high-density limit to the fit, if provided
     if isnothing(rs_HDL) == false && isnothing(meff_HDL) == false
@@ -598,10 +599,12 @@ function plot_mvsrs(
     # println(rs)
     # println(meff_data)
 
-    # mfitfunc = interp.PchipInterpolator(rs, meff_data)
-    mfitfunc = interp.Akima1DInterpolator(rs, meff_data)
-    # xgrid = np.arange(0, 10.2, 0.02)
-    xgrid = np.arange(0, 10.2, 0.02)
+    mfitfunc = fitter(rs, meff_data)
+    # mfitfunc = interp.PchipInterpolator(rs, meff_data, extrapolate=True)
+    # mfitfunc = interp.Akima1DInterpolator(rs, meff_data)
+    # mfitfunc = interp.interp1d(rs, meff_data, kind='quadratic', fill_value="extrapolate")
+    xgrid = np.arange(0, 10.0, 0.02)
+    # xgrid = np.arange(0, 10.5, 0.02)
     # ax.plot(rs, meff_data, 'o', ms=10, color=colors[idx])
     # ax.plot(xgrid, mfitfunc(xgrid), ls=ls, lw=2, color=colors[idx], label=label)
     if isnothing(zorder) == false
@@ -828,6 +831,9 @@ function main()
     # println(rs_HDL)
     # println(meff_HDL)
 
+    quadratic_fitter =
+        (rs, data) -> interp.interp1d(rs, data; kind="quadratic", fill_value="extrapolate")
+
     # Plot m*/m convergence
     fig, ax = plt.subplots(; figsize=(5, 5))
 
@@ -841,7 +847,11 @@ function main()
             "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{sc}]\$",
         ]
     else
-        labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$", "\$G_0 W^\\text{KO}_0\$"]
+        labels = [
+            "\$G_0 W_0\$",
+            "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$",
+            "\$G_0 W^\\text{KO}_0\$",
+        ]
     end
     for (rs, mefflist, label, idx) in zip(rslists, meff_oneshot, labels, indices)
         print("\nPlotting ", label)
@@ -952,24 +962,25 @@ function main()
 
     # VDMC results from this work
     errorbar_mvsrs(
-        rs_VDMC[2:(end - 1)],
-        m_VDMC[2:(end - 1)],
-        m_VDMC_err[2:(end - 1)],
+        rs_VDMC[2:end],
+        m_VDMC[2:end],
+        m_VDMC_err[2:end],
         8,
         "This work",
         ax;
         zorder=1000,
     )
-    # plot_mvsrs(
-    #     rs_VDMC[1:(end - 1)],
-    #     m_VDMC[1:(end - 1)],
-    #     8,
-    #     "",
-    #     ax;
-    #     ls="-",
-    #     rs_HDL=rs_HDL,
-    #     meff_HDL=meff_HDL,
-    # )
+    plot_mvsrs(
+        rs_VDMC[1:end],
+        m_VDMC[1:end],
+        8,
+        "",
+        ax;
+        ls="-",
+        rs_HDL=rs_HDL,
+        meff_HDL=meff_HDL,
+        fitter=quadratic_fitter,
+    )
 
     if constant_fs
         ax.set_title(
@@ -1007,7 +1018,11 @@ function main()
             "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{sc}]\$",
         ]
     else
-        labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$", "\$G_0 W^\\text{KO}_0\$"]
+        labels = [
+            "\$G_0 W_0\$",
+            "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$",
+            "\$G_0 W^\\text{KO}_0\$",
+        ]
     end
     for (rs, zlist, label, idx) in zip(rslists, z_oneshot, labels, indices)
         print("\nPlotting ", label)
@@ -1132,7 +1147,11 @@ function main()
             "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{sc}]\$",
         ]
     else
-        labels = ["\$G_0 W_0\$", "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$", "\$G_0 W^\\text{KO}_0\$"]
+        labels = [
+            "\$G_0 W_0\$",
+            "\$G_0 W^\\text{KO}_{0,+}[F^+_\\text{DMC}]\$",
+            "\$G_0 W^\\text{KO}_0\$",
+        ]
     end
     for (rs, dlist, label, idx) in zip(rslists, d_oneshot, labels, indices)
         print("\nPlotting ", label)
@@ -1154,7 +1173,15 @@ function main()
         zorder=2000,
     )
 
-    plot_mvsrs(rslist, dlist_fp, 6, "LQSGW\$^\\text{KO}_+[F^+_\\text{DMC}]\$", ax; ls="-", zorder=20)
+    plot_mvsrs(
+        rslist,
+        dlist_fp,
+        6,
+        "LQSGW\$^\\text{KO}_+[F^+_\\text{DMC}]\$",
+        ax;
+        ls="-",
+        zorder=20,
+    )
     # ax.scatter(rslist, dlist_fp, 15; color=colors[6], zorder=20, facecolors="none")
 
     rs_cut = rslist[rslist .≤ rs_cutoff_fp_fm]
